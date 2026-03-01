@@ -26,6 +26,24 @@
         
         <header>
             <h1>Monthly Budget Tracker</h1>
+
+            <!-- Date and Progress Section -->
+            <div class="date-container">
+                <p id="current-date">Loading date...</p>
+                <div class="progress-bg">
+                    <div id="month-progress" class="progress-fill"></div>
+                </div>
+                <p id="days-left" class="days-left-text">Loading...</p>
+            </div>
+
+            <!-- Reset Button -->
+            <div class="reset-container">
+                <button class="btn-reset" onclick="resetMonthStatus()">
+                    <i class="fas fa-sync-alt"></i> Start New Month (Uncheck All)
+                </button>
+            </div>
+            
+            <!-- Balance Dashboard -->
             <div class="balance-card">
                 <h2>Remaining Balance</h2>
                 <h1 id="balance">$0.00</h1>
