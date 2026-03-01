@@ -80,7 +80,70 @@ h1 {
     color: var(--dark-color);
 }
 
-/* Balance Dashboard */
+/* --- Date & Progress Bar --- */
+.date-container {
+    text-align: center;
+    margin-bottom: 10px;
+    background: #fff;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+
+#current-date {
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--dark-color);
+    margin-bottom: 10px;
+}
+
+.progress-bg {
+    background-color: #e2e8f0;
+    border-radius: 20px;
+    height: 10px;
+    width: 100%;
+    margin-bottom: 5px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    background-color: var(--primary-color);
+    height: 100%;
+    width: 0%; /* JS will change this */
+    border-radius: 20px;
+    transition: width 0.5s ease-in-out;
+}
+
+.days-left-text {
+    font-size: 0.8rem;
+    color: #64748b;
+}
+
+/* --- Reset Button --- */
+.reset-container {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.btn-reset {
+    background: white;
+    border: 1px solid #cbd5e1;
+    color: #64748b;
+    padding: 8px 15px;
+    font-size: 0.85rem;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.btn-reset:hover {
+    background: #f8fafc;
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+/* --- Balance Dashboard --- */
 .balance-card {
     background: white;
     padding: 20px;
@@ -143,7 +206,6 @@ h3 {
 }
 
 .flex-grow { flex-grow: 1; }
-
 .form-control { margin-bottom: 10px; }
 
 label {
@@ -198,11 +260,38 @@ select {
     margin: 10px 0;
     border-radius: 5px;
     align-items: center;
+    transition: opacity 0.3s;
 }
 
 /* Right border color based on type */
 .list li.plus { border-right: 5px solid var(--income-color); }
 .list li.minus { border-right: 5px solid var(--expense-color); }
+
+/* --- Checkbox & Paid State --- */
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    margin-right: 15px;
+}
+
+input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+}
+
+.list li.completed {
+    opacity: 0.5;
+    background-color: #f1f5f9;
+    box-shadow: none;
+    border-right-color: #cbd5e1;
+}
+
+.list li.completed .list-info span:not(.list-date) {
+    text-decoration: line-through;
+    color: #94a3b8;
+}
 
 .list-info {
     display: flex;
