@@ -13,21 +13,24 @@ const text = document.getElementById('text');
 const amount = document.getElementById('amount');
 const dayInput = document.getElementById('day');
 
+// Login Elements
 const loginOverlay = document.getElementById('login-overlay');
 const appContainer = document.getElementById('app-container');
 const passwordInput = document.getElementById('password-input');
 const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
 
+// Header Elements
 const currentDateEl = document.getElementById('current-date');
 const monthProgressEl = document.getElementById('month-progress');
 const daysLeftEl = document.getElementById('days-left');
 
+// Ledger Element
+const ledgerList = document.getElementById('ledger-list');
+
 // --- STATE MANAGEMENT ---
 
-// Get transactions from local storage
 const localStorageTransactions = JSON.parse(localStorage.getItem('budgetData'));
-
 let transactions = localStorage.getItem('budgetData') !== null ? localStorageTransactions : [];
 
 // --- LOGIN LOGIC ---
@@ -39,8 +42,8 @@ passwordInput.addEventListener('keypress', (e) => {
 function checkPassword() {
     if (passwordInput.value === MY_PASSWORD) {
         loginOverlay.style.display = 'none';
-        appContainer.style.display = 'block';
-        init(); // Start the app
+        appContainer.style.display = window.innerWidth >= 768 ? 'grid' : 'flex'; // Fix display type based on CSS
+        init(); 
     } else {
         loginError.innerText = "Incorrect Password";
         passwordInput.value = '';
@@ -51,30 +54,23 @@ function checkPassword() {
 function updateDateAndProgress() {
     const now = new Date();
     
-    // 1. Display formatted date
+    // Display formatted date
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     currentDateEl.innerText = now.toLocaleDateString('en-US', options);
 
-    // 2. Calculate Progress Bar
+    // Calculate Progress Bar
     const currentDay = now.getDate();
     const currentMonth = now.getMonth(); 
     const currentYear = now.getFullYear();
 
-    // Get total days in current month (handle leap years etc automatically)
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    
-    // Calculate percentage
     const percentage = (currentDay / daysInMonth) * 100;
     
-    // Update DOM
     monthProgressEl.style.width = `${percentage}%`;
-    
-    // Update days left text
-    const daysRemaining = daysInMonth - currentDay;
-    daysLeftEl.innerText = `${daysRemaining} days remaining in month`;
+    daysLeftEl.innerText = `${daysInMonth - currentDay} days remaining in month`;
 }
 
-// --- DATA INITIALIZATION (PRE-FILL FOR DEMO) ---
+// --- DATA INITIALIZATION ---
 function seedData() {
     if (transactions.length === 0) {
         transactions = [
@@ -115,9 +111,8 @@ function addTransaction(e) {
 
     transactions.push(transaction);
 
-    addTransactionDOM(transaction);
-    updateValues();
-    updateLocalStorage();
+    // Refresh all views
+    init();
 
     // Reset inputs
     text.value = '';
@@ -131,16 +126,14 @@ function generateID() {
     return Math.floor(Math.random() * 100000000);
 }
 
-// Add transactions to DOM list
+// Update the Main Transaction List
 function addTransactionDOM(transaction) {
-    // Get sign
     const sign = transaction.type === 'expense' ? '-' : '+';
     const itemClass = transaction.type === 'expense' ? 'minus' : 'plus';
 
     const item = document.createElement('li');
     item.classList.add(itemClass);
     
-    // Check if paid/completed
     if (transaction.paid) {
         item.classList.add('completed');
     }
@@ -174,7 +167,26 @@ function addTransactionDOM(transaction) {
     list.appendChild(item);
 }
 
-// Update the balance, income and expense
+// --- NEW: Update Ledger Sidebar ---
+function updateLedger() {
+    ledgerList.innerHTML = '';
+    
+    // Filter only expenses and sort by day
+    const expenses = transactions
+        .filter(t => t.type === 'expense')
+        .sort((a, b) => a.day - b.day);
+
+    expenses.forEach(exp => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td><span class="ledger-day-badge">${exp.day}</span></td>
+            <td>${exp.text}</td>
+        `;
+        ledgerList.appendChild(row);
+    });
+}
+
+// Update balance, income, expense
 function updateValues() {
     const income = transactions
         .filter(item => item.type === 'income')
@@ -193,7 +205,7 @@ function updateValues() {
     money_minus.innerText = `-$${expense}`;
 }
 
-// Remove transaction by ID
+// Remove transaction
 function removeTransaction(id) {
     transactions = transactions.filter(transaction => transaction.id !== id);
     updateLocalStorage();
@@ -225,7 +237,6 @@ function togglePaid(id) {
 
 // Reset all for new month
 function resetMonthStatus() {
-    // Only resets the "Paid" Checkboxes, keeps the data
     if(confirm("Are you sure? This will uncheck all items for the new month.")) {
         transactions.forEach(t => t.paid = false);
         updateLocalStorage();
@@ -233,7 +244,6 @@ function resetMonthStatus() {
     }
 }
 
-// Update local storage
 function updateLocalStorage() {
     localStorage.setItem('budgetData', JSON.stringify(transactions));
 }
@@ -245,11 +255,12 @@ function init() {
     updateDateAndProgress();
     seedData();
 
-    // Sort by day of month (1 to 31)
+    // Sort by day for the main list
     transactions.sort((a, b) => a.day - b.day);
 
     transactions.forEach(addTransactionDOM);
     updateValues();
+    updateLedger(); // Render the side ledger
 }
 
 form.addEventListener('submit', addTransaction);
