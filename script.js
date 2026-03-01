@@ -1,6 +1,6 @@
 // --- CONFIGURATION ---
 // CHANGE THIS PASSWORD BEFORE UPLOADING
-const MY_PASSWORD = "password123"; 
+const MY_PASSWORD = "payme"; 
 
 // --- SELECT DOM ELEMENTS ---
 const balance = document.getElementById('balance');
@@ -18,6 +18,10 @@ const appContainer = document.getElementById('app-container');
 const passwordInput = document.getElementById('password-input');
 const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
+
+const currentDateEl = document.getElementById('current-date');
+const monthProgressEl = document.getElementById('month-progress');
+const daysLeftEl = document.getElementById('days-left');
 
 // --- STATE MANAGEMENT ---
 
@@ -43,21 +47,47 @@ function checkPassword() {
     }
 }
 
+// --- DATE & PROGRESS LOGIC ---
+function updateDateAndProgress() {
+    const now = new Date();
+    
+    // 1. Display formatted date
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    currentDateEl.innerText = now.toLocaleDateString('en-US', options);
+
+    // 2. Calculate Progress Bar
+    const currentDay = now.getDate();
+    const currentMonth = now.getMonth(); 
+    const currentYear = now.getFullYear();
+
+    // Get total days in current month (handle leap years etc automatically)
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    
+    // Calculate percentage
+    const percentage = (currentDay / daysInMonth) * 100;
+    
+    // Update DOM
+    monthProgressEl.style.width = `${percentage}%`;
+    
+    // Update days left text
+    const daysRemaining = daysInMonth - currentDay;
+    daysLeftEl.innerText = `${daysRemaining} days remaining in month`;
+}
+
 // --- DATA INITIALIZATION (PRE-FILL FOR DEMO) ---
-// If it's the first time running (no data), let's add your specific examples
 function seedData() {
     if (transactions.length === 0) {
         transactions = [
-            { id: 1, text: 'Paycheck 1', amount: 1500, type: 'income', day: 1 },
-            { id: 2, text: 'Paycheck 2', amount: 1500, type: 'income', day: 15 },
-            { id: 3, text: 'CUSTOM CASH', amount: 60, type: 'expense', day: 1 },
-            { id: 4, text: 'Lending Club', amount: 130, type: 'expense', day: 9 },
-            { id: 5, text: 'Car Payment', amount: 300, type: 'expense', day: 1 },
-            { id: 6, text: 'Simplicity', amount: 160, type: 'expense', day: 25 },
-            { id: 7, text: 'Flea Meds', amount: 50, type: 'expense', day: 1 },
-            { id: 8, text: 'Groceries', amount: 300, type: 'expense', day: 1 },
-            { id: 9, text: 'Gas', amount: 60, type: 'expense', day: 1 },
-            { id: 10, text: 'Personal', amount: 200, type: 'expense', day: 1 }
+            { id: 1, text: 'Paycheck 1', amount: 1500, type: 'income', day: 1, paid: false },
+            { id: 2, text: 'Paycheck 2', amount: 1500, type: 'income', day: 15, paid: false },
+            { id: 3, text: 'CUSTOM CASH', amount: 60, type: 'expense', day: 1, paid: false },
+            { id: 4, text: 'Lending Club', amount: 130, type: 'expense', day: 9, paid: false },
+            { id: 5, text: 'Car Payment', amount: 300, type: 'expense', day: 1, paid: false },
+            { id: 6, text: 'Simplicity', amount: 160, type: 'expense', day: 25, paid: false },
+            { id: 7, text: 'Flea Meds', amount: 50, type: 'expense', day: 1, paid: false },
+            { id: 8, text: 'Groceries', amount: 300, type: 'expense', day: 1, paid: false },
+            { id: 9, text: 'Gas', amount: 60, type: 'expense', day: 1, paid: false },
+            { id: 10, text: 'Personal', amount: 200, type: 'expense', day: 1, paid: false }
         ];
         updateLocalStorage();
     }
@@ -77,9 +107,10 @@ function addTransaction(e) {
     const transaction = {
         id: generateID(),
         text: text.value,
-        amount: +amount.value, // Convert string to number
+        amount: +amount.value, 
         type: typeInput.value,
-        day: +dayInput.value
+        day: +dayInput.value,
+        paid: false 
     };
 
     transactions.push(transaction);
@@ -108,14 +139,24 @@ function addTransactionDOM(transaction) {
 
     const item = document.createElement('li');
     item.classList.add(itemClass);
-
-    // Get ordinal suffix for date (1st, 2nd, 3rd)
-    const suffix = getOrdinal(transaction.day);
+    
+    // Check if paid/completed
+    if (transaction.paid) {
+        item.classList.add('completed');
+    }
 
     item.innerHTML = `
-        <div class="list-info">
-            <span class="list-date">Day ${transaction.day}</span>
-            <span>${transaction.text}</span>
+        <div style="display:flex; align-items:center;">
+            <div class="checkbox-container">
+                <input type="checkbox" 
+                    ${transaction.paid ? 'checked' : ''} 
+                    onchange="togglePaid(${transaction.id})"
+                >
+            </div>
+            <div class="list-info">
+                <span class="list-date">Day ${transaction.day}</span>
+                <span>${transaction.text}</span>
+            </div>
         </div>
         <div>
             <span class="money">${sign}$${Math.abs(transaction.amount).toFixed(2)}</span>
@@ -133,26 +174,18 @@ function addTransactionDOM(transaction) {
     list.appendChild(item);
 }
 
-// Helper: 1st, 2nd, 3rd, 4th
-function getOrdinal(n) {
-    return n; // Keep simple for now, can expand later
-}
-
 // Update the balance, income and expense
 function updateValues() {
-    // Calculate Income
     const income = transactions
         .filter(item => item.type === 'income')
         .reduce((acc, item) => (acc += item.amount), 0)
         .toFixed(2);
 
-    // Calculate Expense
     const expense = transactions
         .filter(item => item.type === 'expense')
         .reduce((acc, item) => (acc += item.amount), 0)
         .toFixed(2);
 
-    // Calculate Balance
     const total = (income - expense).toFixed(2);
 
     balance.innerText = `$${total}`;
@@ -167,24 +200,40 @@ function removeTransaction(id) {
     init();
 }
 
-// Edit transaction (Populate form and remove old entry)
+// Edit transaction
 function editTransaction(id) {
     const itemToEdit = transactions.find(transaction => transaction.id === id);
     
-    // Fill form
     text.value = itemToEdit.text;
     amount.value = itemToEdit.amount;
     dayInput.value = itemToEdit.day;
     typeInput.value = itemToEdit.type;
 
-    // Remove old item
     removeTransaction(id);
-    
-    // Scroll to form
     document.querySelector('.add-transaction').scrollIntoView({ behavior: 'smooth' });
 }
 
-// Update local storage transactions
+// Toggle Paid status
+function togglePaid(id) {
+    const item = transactions.find(t => t.id === id);
+    if (item) {
+        item.paid = !item.paid;
+        updateLocalStorage();
+        init(); 
+    }
+}
+
+// Reset all for new month
+function resetMonthStatus() {
+    // Only resets the "Paid" Checkboxes, keeps the data
+    if(confirm("Are you sure? This will uncheck all items for the new month.")) {
+        transactions.forEach(t => t.paid = false);
+        updateLocalStorage();
+        init();
+    }
+}
+
+// Update local storage
 function updateLocalStorage() {
     localStorage.setItem('budgetData', JSON.stringify(transactions));
 }
@@ -193,7 +242,7 @@ function updateLocalStorage() {
 function init() {
     list.innerHTML = '';
     
-    // Check if empty, run seed data
+    updateDateAndProgress();
     seedData();
 
     // Sort by day of month (1 to 31)
