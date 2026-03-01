@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Monthly Budget</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+
+    <!-- 1. Password Protection Overlay -->
+    <div id="login-overlay">
+        <div class="login-box">
+            <h2><i class="fas fa-lock"></i> Secured Budget</h2>
+            <p>Enter password to access your finances.</p>
+            <input type="password" id="password-input" placeholder="Enter Password">
+            <button id="login-btn">Unlock</button>
+            <p id="login-error" class="error-msg"></p>
+        </div>
+    </div>
+
+    <!-- 2. Main App Container -->
+    <div class="container" id="app-container" style="display: none;">
+        
+        <header>
+            <h1>Monthly Budget Tracker</h1>
+            <div class="balance-card">
+                <h2>Remaining Balance</h2>
+                <h1 id="balance">$0.00</h1>
+            </div>
+            
+            <div class="inc-exp-container">
+                <div>
+                    <h4>Income</h4>
+                    <p id="money-plus" class="money plus">+$0.00</p>
+                </div>
+                <div>
+                    <h4>Expenses</h4>
+                    <p id="money-minus" class="money minus">-$0.00</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- 3. Transaction Form -->
+        <section class="add-transaction">
+            <h3>Add New Entry</h3>
+            <form id="form">
+                <div class="form-control">
+                    <label>Type</label>
+                    <select id="type">
+                        <option value="expense">Expense (-)</option>
+                        <option value="income">Income (+)</option>
+                    </select>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-control">
+                        <label>Day (1-31)</label>
+                        <input type="number" id="day" placeholder="1" min="1" max="31" required>
+                    </div>
+                    <div class="form-control flex-grow">
+                        <label>Description</label>
+                        <input type="text" id="text" placeholder="e.g. Groceries" required>
+                    </div>
+                </div>
+
+                <div class="form-control">
+                    <label>Amount ($)</label>
+                    <input type="number" id="amount" placeholder="0" step="0.01" required>
+                </div>
+                
+                <button class="btn">Add Transaction</button>
+            </form>
+        </section>
+
+        <!-- 4. Transaction List -->
+        <section class="history">
+            <h3>Monthly Transactions</h3>
+            <ul id="list" class="list">
+                <!-- Javascript will add items here -->
+            </ul>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
