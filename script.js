@@ -41,6 +41,9 @@ const currentDateEl = document.getElementById('current-date');
 const monthProgressEl = document.getElementById('month-progress');
 const daysLeftEl = document.getElementById('days-left');
 
+// Notes Element
+const notesArea = document.getElementById('notes-area');
+
 // --- STATE MANAGEMENT ---
 
 const localStorageTransactions = JSON.parse(localStorage.getItem('budgetData'));
@@ -341,6 +344,17 @@ function init() {
     renderTransactions();
     updateValues();
     updateLedger();
+    
+    // Load Notes
+    const savedNotes = localStorage.getItem('budgetNotes');
+    if (savedNotes) {
+        notesArea.value = savedNotes;
+    }
 }
+
+// Auto-save notes
+notesArea.addEventListener('input', (e) => {
+    localStorage.setItem('budgetNotes', e.target.value);
+});
 
 form.addEventListener('submit', addTransaction);
