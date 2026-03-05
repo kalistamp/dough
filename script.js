@@ -1,5 +1,4 @@
 // --- CONFIGURATION ---
-// CHANGE THIS PASSWORD BEFORE UPLOADING
 const MY_PASSWORD = "payme"; 
 
 // --- SELECT DOM ELEMENTS ---
@@ -28,6 +27,7 @@ const typeInput = document.getElementById('type');
 const text = document.getElementById('text');
 const amount = document.getElementById('amount');
 const dayInput = document.getElementById('day');
+const submitBtn = document.getElementById('submit-btn'); // New ID for button
 
 // Login Elements
 const loginOverlay = document.getElementById('login-overlay');
@@ -45,9 +45,17 @@ const daysLeftEl = document.getElementById('days-left');
 const notesArea = document.getElementById('notes-area');
 
 // --- STATE MANAGEMENT ---
+let transactions = [];
+let editState = { isEditing: false, id: null };
 
-const localStorageTransactions = JSON.parse(localStorage.getItem('budgetData'));
-let transactions = localStorage.getItem('budgetData') !== null ? localStorageTransactions : [];
+// Safely load data
+try {
+    const storedData = localStorage.getItem('budgetData');
+    transactions = storedData ? JSON.parse(storedData) : [];
+} catch (error) {
+    console.error("Error loading data:", error);
+    transactions = [];
+}
 
 // --- LOGIN LOGIC ---
 loginBtn.addEventListener('click', checkPassword);
@@ -69,16 +77,12 @@ function checkPassword() {
 // --- DATE & PROGRESS LOGIC ---
 function updateDateAndProgress() {
     const now = new Date();
-    
-    // Display formatted date
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     currentDateEl.innerText = now.toLocaleDateString('en-US', options);
 
-    // Calculate Progress Bar
     const currentDay = now.getDate();
     const currentMonth = now.getMonth(); 
     const currentYear = now.getFullYear();
-
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const percentage = (currentDay / daysInMonth) * 100;
     
@@ -90,7 +94,8 @@ function updateDateAndProgress() {
 function seedData() {
     const hasSeeded = localStorage.getItem('hasSeeded');
     
-    if (!hasSeeded) {
+    // Only seed if we haven't seeded AND there is no data
+    if (!hasSeeded && transactions.length === 0) {
         transactions = [
             { id: 1, text: 'Paycheck 1', amount: 1500, type: 'income', day: 1, paid: false },
             { id: 2, text: 'Paycheck 2', amount: 1500, type: 'income', day: 15, paid: false },
@@ -110,8 +115,8 @@ function seedData() {
 
 // --- APP FUNCTIONS ---
 
-// Add new transaction
-function addTransaction(e) {
+// Add or Update transaction
+function handleTransactionSubmit(e) {
     e.preventDefault();
 
     if (text.value.trim() === '' || amount.value.trim() === '' || dayInput.value.trim() === '') {
@@ -119,8 +124,7 @@ function addTransaction(e) {
         return;
     }
 
-    const transaction = {
-        id: generateID(),
+    const transactionData = {
         text: text.value,
         amount: +amount.value, 
         type: typeInput.value,
@@ -128,9 +132,29 @@ function addTransaction(e) {
         paid: false 
     };
 
-    transactions.push(transaction);
+    if (editState.isEditing) {
+        // Update existing item
+        transactions = transactions.map(item => {
+            if (item.id === editState.id) {
+                return { ...item, ...transactionData, id: editState.id, paid: item.paid };
+            }
+            return item;
+        });
+        
+        // Reset Edit State
+        editState = { isEditing: false, id: null };
+        submitBtn.innerText = "Add Transaction";
+        submitBtn.style.backgroundColor = "var(--primary-color)";
+    } else {
+        // Create new item
+        const newTransaction = {
+            ...transactionData,
+            id: generateID()
+        };
+        transactions.push(newTransaction);
+    }
 
-    // Refresh all views
+    updateLocalStorage();
     init();
 
     // Reset inputs
@@ -140,12 +164,10 @@ function addTransaction(e) {
     text.focus();
 }
 
-// Generate random ID
 function generateID() {
     return Math.floor(Math.random() * 100000000);
 }
 
-// Render Transactions to DOM
 function renderTransactions() {
     list_p1.innerHTML = '';
     list_p2.innerHTML = '';
@@ -162,16 +184,12 @@ function renderTransactions() {
         
         item.classList.add(itemClass);
         
-        // Status Logic
         if (transaction.paid) {
             item.classList.add('completed');
         } else if (transaction.type === 'expense') {
-            // Overdue: Unpaid AND due day has passed
             if (transaction.day < currentDay) {
                 item.classList.add('overdue');
-            } 
-            // Upcoming: Unpaid AND due within next 3 days (inclusive of today)
-            else if (transaction.day >= currentDay && transaction.day <= currentDay + 3) {
+            } else if (transaction.day >= currentDay && transaction.day <= currentDay + 3) {
                 item.classList.add('upcoming');
             }
         }
@@ -202,7 +220,6 @@ function renderTransactions() {
             </div>
         `;
 
-        // Split Logic: Period 1 (1-15), Period 2 (16-31)
         if (transaction.day <= 15) {
             list_p1.appendChild(item);
         } else {
@@ -211,12 +228,10 @@ function renderTransactions() {
     });
 }
 
-// Update Ledger Sidebar
 function updateLedger() {
     ledger_list_p1.innerHTML = '';
     ledger_list_p2.innerHTML = '';
     
-    // Filter only expenses and sort by day
     const expenses = transactions
         .filter(t => t.type === 'expense')
         .sort((a, b) => a.day - b.day);
@@ -236,71 +251,67 @@ function updateLedger() {
     });
 }
 
-// Calculate and Update all Totals
 function updateValues() {
-    // Helper to calculate totals
     const calcTotal = (items, type) => {
         return items
             .filter(item => item.type === type)
             .reduce((acc, item) => (acc += item.amount), 0);
     };
 
-    // Split transactions
     const p1_items = transactions.filter(t => t.day <= 15);
     const p2_items = transactions.filter(t => t.day > 15);
 
-    // Period 1 Calcs
     const p1_inc = calcTotal(p1_items, 'income');
     const p1_exp = calcTotal(p1_items, 'expense');
     const p1_bal = p1_inc - p1_exp;
 
-    // Period 2 Calcs
     const p2_inc = calcTotal(p2_items, 'income');
     const p2_exp = calcTotal(p2_items, 'expense');
     const p2_bal = p2_inc - p2_exp;
 
-    // Monthly Calcs
     const total_inc = p1_inc + p2_inc;
     const total_exp = p1_exp + p2_exp;
     const total_bal = total_inc - total_exp;
 
-    // Update DOM - Period 1
     p1_income.innerText = `+$${p1_inc.toFixed(2)}`;
     p1_expense.innerText = `-$${p1_exp.toFixed(2)}`;
     p1_balance.innerText = `$${p1_bal.toFixed(2)}`;
 
-    // Update DOM - Period 2
     p2_income.innerText = `+$${p2_inc.toFixed(2)}`;
     p2_expense.innerText = `-$${p2_exp.toFixed(2)}`;
     p2_balance.innerText = `$${p2_bal.toFixed(2)}`;
 
-    // Update DOM - Monthly
     money_plus.innerText = `+$${total_inc.toFixed(2)}`;
     money_minus.innerText = `-$${total_exp.toFixed(2)}`;
     balance.innerText = `$${total_bal.toFixed(2)}`;
 }
 
-// Remove transaction
 function removeTransaction(id) {
-    transactions = transactions.filter(transaction => transaction.id !== id);
-    updateLocalStorage();
-    init();
+    if (confirm('Delete this transaction?')) {
+        transactions = transactions.filter(transaction => transaction.id !== id);
+        updateLocalStorage();
+        init();
+    }
 }
 
-// Edit transaction
+// SAFE EDIT: Does not remove item until saved
 function editTransaction(id) {
     const itemToEdit = transactions.find(transaction => transaction.id === id);
+    if (!itemToEdit) return;
     
     text.value = itemToEdit.text;
     amount.value = itemToEdit.amount;
     dayInput.value = itemToEdit.day;
     typeInput.value = itemToEdit.type;
 
-    removeTransaction(id);
+    // Enter Edit Mode
+    editState = { isEditing: true, id: id };
+    submitBtn.innerText = "Update Transaction";
+    submitBtn.style.backgroundColor = "#f59e0b"; // Orange color for edit mode
+
     document.querySelector('.add-transaction').scrollIntoView({ behavior: 'smooth' });
 }
 
-// Toggle Paid status
 function togglePaid(id) {
     const item = transactions.find(t => t.id === id);
     if (item) {
@@ -310,7 +321,6 @@ function togglePaid(id) {
     }
 }
 
-// Reset all for new month
 function resetMonthStatus() {
     if(confirm("Are you sure? This will uncheck all items for the new month.")) {
         transactions.forEach(t => t.paid = false);
@@ -319,7 +329,6 @@ function resetMonthStatus() {
     }
 }
 
-// Export to JSON
 function exportJSON() {
     const dataStr = JSON.stringify(transactions, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
@@ -337,7 +346,6 @@ function updateLocalStorage() {
     localStorage.setItem('budgetData', JSON.stringify(transactions));
 }
 
-// Init app
 function init() {
     updateDateAndProgress();
     seedData();
@@ -353,8 +361,10 @@ function init() {
 }
 
 // Auto-save notes
-notesArea.addEventListener('input', (e) => {
-    localStorage.setItem('budgetNotes', e.target.value);
-});
+if (notesArea) {
+    notesArea.addEventListener('input', (e) => {
+        localStorage.setItem('budgetNotes', e.target.value);
+    });
+}
 
-form.addEventListener('submit', addTransaction);
+form.addEventListener('submit', handleTransactionSubmit);
