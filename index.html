@@ -9,7 +9,7 @@
 </head>
 <body>
 
-    <!-- 1. Password Protection Overlay -->
+    <!-- Password Protection Overlay -->
     <div id="login-overlay">
         <div class="login-box">
             <h2><i class="fas fa-lock"></i> Secured Budget</h2>
@@ -20,35 +20,9 @@
         </div>
     </div>
 
-    <!-- 2. Main App Dashboard (Grid Layout) -->
+    <!-- Main App Dashboard -->
     <div class="dashboard-wrapper" id="app-container" style="display: none;">
         
-        <!-- NEW: Left Sidebar (Hard Ledger) -->
-        <aside class="ledger-sidebar">
-            <div class="ledger-header">
-                <h3><i class="fas fa-book"></i> Bill Ledger</h3>
-                <small>Recurring Monthly Due Dates</small>
-            </div>
-            
-            <!-- Collapsible Toggle for Mobile -->
-            <details open>
-                <summary class="mobile-toggle">View Bill Schedule</summary>
-                <div class="ledger-content">
-                    <table class="ledger-table">
-                        <thead>
-                            <tr>
-                                <th>Day</th>
-                                <th>Bill Name</th>
-                            </tr>
-                        </thead>
-                        <tbody id="ledger-list">
-                            <!-- JS populates this -->
-                        </tbody>
-                    </table>
-                </div>
-            </details>
-        </aside>
-
         <!-- Main Content Area -->
         <main class="main-content">
             <header>
@@ -63,28 +37,14 @@
                     <p id="days-left" class="days-left-text">Loading...</p>
                 </div>
 
-                <!-- Reset Button -->
-                <div class="reset-container">
+                <!-- Controls: Reset & Export -->
+                <div class="controls-container">
                     <button class="btn-reset" onclick="resetMonthStatus()">
-                        <i class="fas fa-sync-alt"></i> Start New Month (Uncheck All)
+                        <i class="fas fa-sync-alt"></i> New Month
                     </button>
-                </div>
-                
-                <!-- Balance Dashboard -->
-                <div class="balance-card">
-                    <h2>Remaining Balance</h2>
-                    <h1 id="balance">$0.00</h1>
-                </div>
-                
-                <div class="inc-exp-container">
-                    <div>
-                        <h4>Income</h4>
-                        <p id="money-plus" class="money plus">+$0.00</p>
-                    </div>
-                    <div>
-                        <h4>Expenses</h4>
-                        <p id="money-minus" class="money minus">-$0.00</p>
-                    </div>
+                    <button class="btn-reset" onclick="exportJSON()">
+                        <i class="fas fa-file-download"></i> Export JSON
+                    </button>
                 </div>
             </header>
 
@@ -120,14 +80,131 @@
                 </form>
             </section>
 
-            <!-- Transaction List -->
-            <section class="history">
-                <h3>Monthly Transactions</h3>
-                <ul id="list" class="list">
-                    <!-- Javascript will add items here -->
+            <!-- Period 1 Section (1st - 15th) -->
+            <section class="period-section">
+                <div class="period-header">
+                    <h3>Period 1 <small>(1st - 15th)</small></h3>
+                </div>
+                
+                <!-- Period 1 Summary -->
+                <div class="period-summary">
+                    <div class="summary-item">
+                        <span>Income</span>
+                        <span id="p1-income" class="money plus">+$0.00</span>
+                    </div>
+                    <div class="summary-item">
+                        <span>Expenses</span>
+                        <span id="p1-expense" class="money minus">-$0.00</span>
+                    </div>
+                    <div class="summary-item highlight">
+                        <span>Remaining</span>
+                        <span id="p1-balance">$0.00</span>
+                    </div>
+                </div>
+
+                <ul id="list-p1" class="list">
+                    <!-- JS populates Period 1 items here -->
                 </ul>
             </section>
+
+            <!-- Period 2 Section (16th - 31st) -->
+            <section class="period-section">
+                <div class="period-header">
+                    <h3>Period 2 <small>(16th - End)</small></h3>
+                </div>
+
+                <!-- Period 2 Summary -->
+                <div class="period-summary">
+                    <div class="summary-item">
+                        <span>Income</span>
+                        <span id="p2-income" class="money plus">+$0.00</span>
+                    </div>
+                    <div class="summary-item">
+                        <span>Expenses</span>
+                        <span id="p2-expense" class="money minus">-$0.00</span>
+                    </div>
+                    <div class="summary-item highlight">
+                        <span>Remaining</span>
+                        <span id="p2-balance">$0.00</span>
+                    </div>
+                </div>
+
+                <ul id="list-p2" class="list">
+                    <!-- JS populates Period 2 items here -->
+                </ul>
+            </section>
+
+            <!-- Monthly Summary (Bottom) -->
+            <section class="monthly-summary-card">
+                <h2>Total Monthly Summary</h2>
+                <div class="inc-exp-container">
+                    <div>
+                        <h4>Total Income</h4>
+                        <p id="money-plus" class="money plus">+$0.00</p>
+                    </div>
+                    <div>
+                        <h4>Total Expenses</h4>
+                        <p id="money-minus" class="money minus">-$0.00</p>
+                    </div>
+                </div>
+                <div class="balance-footer">
+                    <h3>Net Balance</h3>
+                    <h1 id="balance">$0.00</h1>
+                </div>
+            </section>
+
         </main>
+
+        <!-- Sidebar (Ledger) - Moved below main for mobile flow -->
+        <aside class="ledger-sidebar">
+            <!-- Collapsible Toggle for Mobile -->
+            <details open>
+                <summary class="mobile-toggle">
+                    <span><i class="fas fa-book"></i> View Bill Schedule</span>
+                    <i class="fas fa-chevron-down"></i>
+                </summary>
+                
+                <div class="ledger-content">
+                    <div class="ledger-header">
+                        <h3><i class="fas fa-book"></i> Bill Ledger</h3>
+                        <small>Recurring Monthly Due Dates</small>
+                    </div>
+
+                    <!-- Period 1 Ledger -->
+                    <div class="ledger-section">
+                        <h4>Period 1 (1st - 15th)</h4>
+                        <table class="ledger-table">
+                            <thead>
+                                <tr>
+                                    <th>Day</th>
+                                    <th>Bill Name</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ledger-list-p1">
+                                <!-- JS populates this -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Period 2 Ledger -->
+                    <div class="ledger-section">
+                        <h4>Period 2 (16th - End)</h4>
+                        <table class="ledger-table">
+                            <thead>
+                                <tr>
+                                    <th>Day</th>
+                                    <th>Bill Name</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ledger-list-p2">
+                                <!-- JS populates this -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </details>
+        </aside>
+
     </div>
 
     <script src="script.js"></script>
