@@ -37,18 +37,14 @@
                     <p id="days-left" class="days-left-text">Loading...</p>
                 </div>
 
-                <!-- Controls: Reset & Export & Import -->
+                <!-- Controls: Reset & Cloud Sync -->
                 <div class="controls-container">
                     <button class="btn-reset" onclick="resetMonthStatus()">
                         <i class="fas fa-sync-alt"></i> New Month
                     </button>
-                    <button class="btn-reset" onclick="exportJSON()">
-                        <i class="fas fa-file-download"></i> Export JSON
+                    <button class="btn-reset" id="sync-btn" onclick="manualSync()">
+                        <i class="fas fa-cloud"></i> Cloud Sync
                     </button>
-                    <label class="btn-reset" style="cursor: pointer;">
-                        <i class="fas fa-file-upload"></i> Import JSON
-                        <input type="file" id="import-file" accept=".json" style="display: none;" onchange="importJSON(event)">
-                    </label>
                 </div>
             </header>
 
