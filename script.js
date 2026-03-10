@@ -97,16 +97,16 @@ function seedData() {
     // Only seed if we haven't seeded AND there is no data
     if (!hasSeeded && transactions.length === 0) {
         transactions = [
-            { id: 1, text: 'Paycheck 1', amount: 1500, type: 'income', day: 1, paid: false },
-            { id: 2, text: 'Paycheck 2', amount: 1500, type: 'income', day: 15, paid: false },
-            { id: 3, text: 'CUSTOM CASH', amount: 60, type: 'expense', day: 1, paid: false },
+            { id: 1, text: 'Paycheck 1', amount: 1500, type: 'income', day: 6, paid: false },
+            { id: 2, text: 'Paycheck 2', amount: 1500, type: 'income', day: 20, paid: false },
+            { id: 3, text: 'CUSTOM CASH', amount: 60, type: 'expense', day: 6, paid: false },
             { id: 4, text: 'Lending Club', amount: 130, type: 'expense', day: 9, paid: false },
-            { id: 5, text: 'Car Payment', amount: 300, type: 'expense', day: 1, paid: false },
+            { id: 5, text: 'Car Payment', amount: 300, type: 'expense', day: 6, paid: false },
             { id: 6, text: 'Simplicity', amount: 160, type: 'expense', day: 25, paid: false },
-            { id: 7, text: 'Flea Meds', amount: 50, type: 'expense', day: 1, paid: false },
-            { id: 8, text: 'Groceries', amount: 300, type: 'expense', day: 1, paid: false },
-            { id: 9, text: 'Gas', amount: 60, type: 'expense', day: 1, paid: false },
-            { id: 10, text: 'Personal', amount: 200, type: 'expense', day: 1, paid: false }
+            { id: 7, text: 'Flea Meds', amount: 50, type: 'expense', day: 6, paid: false },
+            { id: 8, text: 'Groceries', amount: 300, type: 'expense', day: 6, paid: false },
+            { id: 9, text: 'Gas', amount: 60, type: 'expense', day: 6, paid: false },
+            { id: 10, text: 'Personal', amount: 200, type: 'expense', day: 6, paid: false }
         ];
         localStorage.setItem('hasSeeded', 'true');
         updateLocalStorage();
@@ -220,7 +220,9 @@ function renderTransactions() {
             </div>
         `;
 
-        if (transaction.day <= 15) {
+        // Period 1: 6th - 19th
+        // Period 2: 20th - 31st AND 1st - 5th
+        if (transaction.day >= 6 && transaction.day <= 19) {
             list_p1.appendChild(item);
         } else {
             list_p2.appendChild(item);
@@ -243,7 +245,7 @@ function updateLedger() {
             <td>${exp.text}</td>
         `;
 
-        if (exp.day <= 15) {
+        if (exp.day >= 6 && exp.day <= 19) {
             ledger_list_p1.appendChild(row);
         } else {
             ledger_list_p2.appendChild(row);
@@ -258,8 +260,8 @@ function updateValues() {
             .reduce((acc, item) => (acc += item.amount), 0);
     };
 
-    const p1_items = transactions.filter(t => t.day <= 15);
-    const p2_items = transactions.filter(t => t.day > 15);
+    const p1_items = transactions.filter(t => t.day >= 6 && t.day <= 19);
+    const p2_items = transactions.filter(t => t.day >= 20 || t.day <= 5);
 
     const p1_inc = calcTotal(p1_items, 'income');
     const p1_exp = calcTotal(p1_items, 'expense');
@@ -330,7 +332,11 @@ function resetMonthStatus() {
 }
 
 function exportJSON() {
-    const dataStr = JSON.stringify(transactions, null, 2);
+    const exportData = {
+        transactions: transactions,
+        notes: notesArea.value
+    };
+    const dataStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -340,6 +346,39 @@ function exportJSON() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+function importJSON(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const importedData = JSON.parse(e.target.result);
+            
+            // Backwards compatibility with old exports that were just an array
+            if (Array.isArray(importedData)) {
+                transactions = importedData;
+            } else if (importedData.transactions) {
+                transactions = importedData.transactions;
+                if (importedData.notes !== undefined) {
+                    notesArea.value = importedData.notes;
+                    localStorage.setItem('budgetNotes', importedData.notes);
+                }
+            }
+            
+            updateLocalStorage();
+            init();
+            alert("Data imported successfully!");
+        } catch (error) {
+            console.error("Error parsing JSON:", error);
+            alert("Invalid JSON file. Please make sure you selected a valid budget backup.");
+        }
+        // Reset file input so the same file can be selected again if needed
+        event.target.value = '';
+    };
+    reader.readAsText(file);
 }
 
 function updateLocalStorage() {
