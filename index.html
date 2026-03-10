@@ -37,7 +37,7 @@
                     <p id="days-left" class="days-left-text">Loading...</p>
                 </div>
 
-                <!-- Controls: Reset & Export -->
+                <!-- Controls: Reset & Export & Import -->
                 <div class="controls-container">
                     <button class="btn-reset" onclick="resetMonthStatus()">
                         <i class="fas fa-sync-alt"></i> New Month
@@ -45,6 +45,10 @@
                     <button class="btn-reset" onclick="exportJSON()">
                         <i class="fas fa-file-download"></i> Export JSON
                     </button>
+                    <label class="btn-reset" style="cursor: pointer;">
+                        <i class="fas fa-file-upload"></i> Import JSON
+                        <input type="file" id="import-file" accept=".json" style="display: none;" onchange="importJSON(event)">
+                    </label>
                 </div>
             </header>
 
@@ -80,10 +84,10 @@
                 </form>
             </section>
 
-            <!-- Period 1 Section (1st - 15th) -->
+            <!-- Period 1 Section (6th - 19th) -->
             <section class="period-section">
                 <div class="period-header">
-                    <h3>Period 1 <small>(1st - 15th)</small></h3>
+                    <h3>Period 1 <small>(6th - 19th)</small></h3>
                 </div>
                 
                 <!-- Period 1 Summary -->
@@ -107,10 +111,10 @@
                 </ul>
             </section>
 
-            <!-- Period 2 Section (16th - 31st) -->
+            <!-- Period 2 Section (20th - 5th) -->
             <section class="period-section">
                 <div class="period-header">
-                    <h3>Period 2 <small>(16th - End)</small></h3>
+                    <h3>Period 2 <small>(20th - 5th)</small></h3>
                 </div>
 
                 <!-- Period 2 Summary -->
@@ -172,7 +176,7 @@
 
                     <!-- Period 1 Ledger -->
                     <div class="ledger-section">
-                        <h4>Period 1 (1st - 15th)</h4>
+                        <h4>Period 1 (6th - 19th)</h4>
                         <table class="ledger-table">
                             <thead>
                                 <tr>
@@ -188,7 +192,7 @@
 
                     <!-- Period 2 Ledger -->
                     <div class="ledger-section">
-                        <h4>Period 2 (16th - End)</h4>
+                        <h4>Period 2 (20th - 5th)</h4>
                         <table class="ledger-table">
                             <thead>
                                 <tr>
