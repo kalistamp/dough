@@ -1,5 +1,8 @@
 // --- CONFIGURATION ---
 const MY_PASSWORD = "payme"; 
+const GITHUB_TOKEN = "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"; // Paste your GitHub Token here
+const GIST_ID = "85fd0ba8df128ea3f7a8b0ce317fda00";           // Paste your Gist ID here
+const GIST_FILENAME = "budget-data.json";
 
 // --- SELECT DOM ELEMENTS ---
 // Monthly Totals
@@ -27,7 +30,7 @@ const typeInput = document.getElementById('type');
 const text = document.getElementById('text');
 const amount = document.getElementById('amount');
 const dayInput = document.getElementById('day');
-const submitBtn = document.getElementById('submit-btn'); // New ID for button
+const submitBtn = document.getElementById('submit-btn');
 
 // Login Elements
 const loginOverlay = document.getElementById('login-overlay');
@@ -48,7 +51,7 @@ const notesArea = document.getElementById('notes-area');
 let transactions = [];
 let editState = { isEditing: false, id: null };
 
-// Safely load data
+// Safely load local data initially so the app loads instantly
 try {
     const storedData = localStorage.getItem('budgetData');
     transactions = storedData ? JSON.parse(storedData) : [];
@@ -94,7 +97,6 @@ function updateDateAndProgress() {
 function seedData() {
     const hasSeeded = localStorage.getItem('hasSeeded');
     
-    // Only seed if we haven't seeded AND there is no data
     if (!hasSeeded && transactions.length === 0) {
         transactions = [
             { id: 1, text: 'Paycheck 1', amount: 1500, type: 'income', day: 6, paid: false },
@@ -115,7 +117,6 @@ function seedData() {
 
 // --- APP FUNCTIONS ---
 
-// Add or Update transaction
 function handleTransactionSubmit(e) {
     e.preventDefault();
 
@@ -133,7 +134,6 @@ function handleTransactionSubmit(e) {
     };
 
     if (editState.isEditing) {
-        // Update existing item
         transactions = transactions.map(item => {
             if (item.id === editState.id) {
                 return { ...item, ...transactionData, id: editState.id, paid: item.paid };
@@ -141,12 +141,10 @@ function handleTransactionSubmit(e) {
             return item;
         });
         
-        // Reset Edit State
         editState = { isEditing: false, id: null };
         submitBtn.innerText = "Add Transaction";
         submitBtn.style.backgroundColor = "var(--primary-color)";
     } else {
-        // Create new item
         const newTransaction = {
             ...transactionData,
             id: generateID()
@@ -155,9 +153,10 @@ function handleTransactionSubmit(e) {
     }
 
     updateLocalStorage();
-    init();
+    renderTransactions();
+    updateValues();
+    updateLedger();
 
-    // Reset inputs
     text.value = '';
     amount.value = '';
     dayInput.value = '';
@@ -292,11 +291,12 @@ function removeTransaction(id) {
     if (confirm('Delete this transaction?')) {
         transactions = transactions.filter(transaction => transaction.id !== id);
         updateLocalStorage();
-        init();
+        renderTransactions();
+        updateValues();
+        updateLedger();
     }
 }
 
-// SAFE EDIT: Does not remove item until saved
 function editTransaction(id) {
     const itemToEdit = transactions.find(transaction => transaction.id === id);
     if (!itemToEdit) return;
@@ -306,10 +306,9 @@ function editTransaction(id) {
     dayInput.value = itemToEdit.day;
     typeInput.value = itemToEdit.type;
 
-    // Enter Edit Mode
     editState = { isEditing: true, id: id };
     submitBtn.innerText = "Update Transaction";
-    submitBtn.style.backgroundColor = "#f59e0b"; // Orange color for edit mode
+    submitBtn.style.backgroundColor = "#f59e0b";
 
     document.querySelector('.add-transaction').scrollIntoView({ behavior: 'smooth' });
 }
@@ -319,7 +318,8 @@ function togglePaid(id) {
     if (item) {
         item.paid = !item.paid;
         updateLocalStorage();
-        init(); 
+        renderTransactions();
+        updateValues();
     }
 }
 
@@ -327,82 +327,145 @@ function resetMonthStatus() {
     if(confirm("Are you sure? This will uncheck all items for the new month.")) {
         transactions.forEach(t => t.paid = false);
         updateLocalStorage();
-        init();
+        renderTransactions();
+        updateValues();
     }
 }
 
-function exportJSON() {
-    const exportData = {
-        transactions: transactions,
-        notes: notesArea.value
-    };
-    const dataStr = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = "budget-backup.json";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+// --- GITHUB GIST SYNC LOGIC ---
+
+let syncTimeout;
+
+// Auto-saves to Gist 1 second after any change is made
+function saveToGist() {
+    if (!GITHUB_TOKEN || !GIST_ID || GITHUB_TOKEN === "YOUR_GITHUB_TOKEN_HERE") return;
+    
+    clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(async () => {
+        const syncBtn = document.getElementById('sync-btn');
+        if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        const exportData = {
+            transactions: transactions,
+            notes: notesArea.value
+        };
+        
+        try {
+            await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `token ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    files: {
+                        [GIST_FILENAME]: {
+                            content: JSON.stringify(exportData, null, 2)
+                        }
+                    }
+                })
+            });
+            if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-check-circle"></i> Saved';
+            setTimeout(() => {
+                if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+            }, 2000);
+        } catch (error) {
+            console.error("Error saving to Gist:", error);
+            if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+        }
+    }, 1000);
 }
 
-function importJSON(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const importedData = JSON.parse(e.target.result);
+// Pulls latest data from Gist (runs on load, or when you click the Cloud Sync button)
+async function syncFromCloud() {
+    if (!GITHUB_TOKEN || !GIST_ID || GITHUB_TOKEN === "YOUR_GITHUB_TOKEN_HERE") return;
+    
+    const syncBtn = document.getElementById('sync-btn');
+    if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    
+    try {
+        const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+            headers: {
+                'Authorization': `token ${GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json'
+            },
+            cache: 'no-store' // Prevent browser from caching old gist data
+        });
+        const gist = await response.json();
+        
+        if (gist.files && gist.files[GIST_FILENAME]) {
+            const content = gist.files[GIST_FILENAME].content;
+            const data = JSON.parse(content);
             
-            // Backwards compatibility with old exports that were just an array
-            if (Array.isArray(importedData)) {
-                transactions = importedData;
-            } else if (importedData.transactions) {
-                transactions = importedData.transactions;
-                if (importedData.notes !== undefined) {
-                    notesArea.value = importedData.notes;
-                    localStorage.setItem('budgetNotes', importedData.notes);
-                }
+            // If Gist is completely empty, push our local data up to initialize it
+            if (Object.keys(data).length === 0) {
+                saveToGist();
+                return;
+            }
+
+            if (data.transactions) {
+                transactions = data.transactions;
+                notesArea.value = data.notes !== undefined ? data.notes : "";
+                localStorage.setItem('budgetNotes', notesArea.value);
+            } else if (Array.isArray(data)) {
+                transactions = data;
             }
             
-            updateLocalStorage();
-            init();
-            alert("Data imported successfully!");
-        } catch (error) {
-            console.error("Error parsing JSON:", error);
-            alert("Invalid JSON file. Please make sure you selected a valid budget backup.");
+            // Update local storage with new cloud data
+            localStorage.setItem('budgetData', JSON.stringify(transactions));
+            
+            // Re-render UI
+            renderTransactions();
+            updateValues();
+            updateLedger();
+            
+            if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Loaded';
+            setTimeout(() => {
+                if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+            }, 2000);
         }
-        // Reset file input so the same file can be selected again if needed
-        event.target.value = '';
-    };
-    reader.readAsText(file);
+    } catch (error) {
+        console.error("Error loading from Gist:", error);
+        if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Load Error';
+    }
+}
+
+function manualSync() {
+    // When the user clicks the sync button, pull the latest data from the cloud
+    // (If they made changes on another device, this brings them in)
+    syncFromCloud();
 }
 
 function updateLocalStorage() {
     localStorage.setItem('budgetData', JSON.stringify(transactions));
+    saveToGist(); // Trigger auto-save to cloud
 }
 
 function init() {
     updateDateAndProgress();
     seedData();
-    renderTransactions();
-    updateValues();
-    updateLedger();
     
-    // Load Notes
+    // Load local notes immediately
     const savedNotes = localStorage.getItem('budgetNotes');
     if (savedNotes) {
         notesArea.value = savedNotes;
     }
+
+    // Render local data immediately so the app feels fast
+    renderTransactions();
+    updateValues();
+    updateLedger();
+
+    // Then fetch the latest data from the cloud in the background
+    syncFromCloud();
 }
 
-// Auto-save notes
+// Auto-save notes when you click out of the text box (change event)
 if (notesArea) {
-    notesArea.addEventListener('input', (e) => {
+    notesArea.addEventListener('change', (e) => {
         localStorage.setItem('budgetNotes', e.target.value);
+        saveToGist();
     });
 }
 
