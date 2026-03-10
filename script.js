@@ -1,8 +1,10 @@
 // --- CONFIGURATION ---
 const MY_PASSWORD = "payme"; 
-const GITHUB_TOKEN = "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"; // Paste your GitHub Token here
-const GIST_ID = "85fd0ba8df128ea3f7a8b0ce317fda00";           // Paste your Gist ID here
 const GIST_FILENAME = "budget-data.json";
+
+// Dynamic Configuration (Loaded from localStorage)
+let GITHUB_TOKEN = localStorage.getItem('githubToken') || "";
+let GIST_ID = localStorage.getItem('gistId') || "";
 
 // --- SELECT DOM ELEMENTS ---
 // Monthly Totals
@@ -39,6 +41,13 @@ const passwordInput = document.getElementById('password-input');
 const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
 
+// Settings Elements
+const settingsModal = document.getElementById('settings-modal');
+const githubTokenInput = document.getElementById('github-token-input');
+const gistIdInput = document.getElementById('gist-id-input');
+const saveSettingsBtn = document.getElementById('save-settings-btn');
+const closeSettingsBtn = document.getElementById('close-settings-btn');
+
 // Header Elements
 const currentDateEl = document.getElementById('current-date');
 const monthProgressEl = document.getElementById('month-progress');
@@ -46,6 +55,34 @@ const daysLeftEl = document.getElementById('days-left');
 
 // Notes Element
 const notesArea = document.getElementById('notes-area');
+
+// --- SETTINGS LOGIC ---
+function openSettings() {
+    githubTokenInput.value = GITHUB_TOKEN;
+    gistIdInput.value = GIST_ID;
+    settingsModal.style.display = 'flex';
+}
+
+function closeSettings() {
+    settingsModal.style.display = 'none';
+}
+
+saveSettingsBtn.addEventListener('click', () => {
+    GITHUB_TOKEN = githubTokenInput.value.trim();
+    GIST_ID = gistIdInput.value.trim();
+    
+    localStorage.setItem('githubToken', GITHUB_TOKEN);
+    localStorage.setItem('gistId', GIST_ID);
+    
+    closeSettings();
+    
+    // Attempt a sync immediately after saving
+    if (GITHUB_TOKEN && GIST_ID) {
+        syncFromCloud();
+    }
+});
+
+closeSettingsBtn.addEventListener('click', closeSettings);
 
 // --- STATE MANAGEMENT ---
 let transactions = [];
@@ -338,11 +375,20 @@ let syncTimeout;
 
 // Auto-saves to Gist 1 second after any change is made
 function saveToGist() {
-    if (!GITHUB_TOKEN || !GIST_ID || GITHUB_TOKEN === "YOUR_GITHUB_TOKEN_HERE") return;
+    const syncBtn = document.getElementById('sync-btn');
+    
+    if (!GITHUB_TOKEN || !GIST_ID) {
+        if(syncBtn) {
+            syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Setup Required';
+            setTimeout(() => {
+                syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+            }, 3000);
+        }
+        return;
+    }
     
     clearTimeout(syncTimeout);
     syncTimeout = setTimeout(async () => {
-        const syncBtn = document.getElementById('sync-btn');
         if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         
         const exportData = {
@@ -351,7 +397,7 @@ function saveToGist() {
         };
         
         try {
-            await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+            const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
                 method: 'PATCH',
                 headers: {
                     'Authorization': `token ${GITHUB_TOKEN}`,
@@ -366,22 +412,43 @@ function saveToGist() {
                     }
                 })
             });
-            if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-check-circle"></i> Saved';
-            setTimeout(() => {
-                if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-            }, 2000);
+            
+            if (!response.ok) {
+                throw new Error(`GitHub API Error: ${response.status}`);
+            }
+            
+            if(syncBtn) {
+                syncBtn.innerHTML = '<i class="fas fa-check-circle"></i> Saved';
+                setTimeout(() => {
+                    syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+                }, 2000);
+            }
         } catch (error) {
             console.error("Error saving to Gist:", error);
-            if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+            if(syncBtn) {
+                syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                setTimeout(() => {
+                    syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+                }, 3000);
+            }
         }
     }, 1000);
 }
 
 // Pulls latest data from Gist (runs on load, or when you click the Cloud Sync button)
 async function syncFromCloud() {
-    if (!GITHUB_TOKEN || !GIST_ID || GITHUB_TOKEN === "YOUR_GITHUB_TOKEN_HERE") return;
-    
     const syncBtn = document.getElementById('sync-btn');
+    
+    if (!GITHUB_TOKEN || !GIST_ID) {
+        if(syncBtn) {
+            syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Setup Required';
+            setTimeout(() => {
+                syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+            }, 3000);
+        }
+        return;
+    }
+    
     if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
     
     try {
@@ -392,6 +459,11 @@ async function syncFromCloud() {
             },
             cache: 'no-store' // Prevent browser from caching old gist data
         });
+        
+        if (!response.ok) {
+            throw new Error(`GitHub API Error: ${response.status}`);
+        }
+        
         const gist = await response.json();
         
         if (gist.files && gist.files[GIST_FILENAME]) {
@@ -420,14 +492,24 @@ async function syncFromCloud() {
             updateValues();
             updateLedger();
             
-            if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Loaded';
-            setTimeout(() => {
-                if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-            }, 2000);
+            if(syncBtn) {
+                syncBtn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Loaded';
+                setTimeout(() => {
+                    syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+                }, 2000);
+            }
+        } else {
+            // File doesn't exist in gist yet, initialize it
+            saveToGist();
         }
     } catch (error) {
         console.error("Error loading from Gist:", error);
-        if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Load Error';
+        if(syncBtn) {
+            syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Load Error';
+            setTimeout(() => {
+                syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
+            }, 3000);
+        }
     }
 }
 
