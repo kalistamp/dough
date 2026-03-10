@@ -1,6 +1,6 @@
 // --- CONFIGURATION ---
 const MY_PASSWORD = "payme"; 
-const GITHUB_TOKEN = "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"; // Paste your GitHub Token here
+const GITHUB_TOKEN = "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"; // Paste your GitHub Token here
 const GIST_ID = "85fd0ba8df128ea3f7a8b0ce317fda00";           // Paste your Gist ID here
 const GIST_FILENAME = "budget-data.json";
 
