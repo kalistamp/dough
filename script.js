@@ -552,3 +552,23 @@ if (notesArea) {
 }
 
 form.addEventListener('submit', handleTransactionSubmit);
+
+// --- DARK MODE LOGIC ---
+const darkModeBtn = document.getElementById('dark-mode-btn');
+const darkModeIcon = darkModeBtn.querySelector('i');
+
+if (localStorage.getItem('darkMode') === 'enabled') {
+    document.body.classList.add('dark-mode');
+    darkModeIcon.classList.replace('fa-moon', 'fa-sun');
+}
+
+darkModeBtn.addEventListener('click', () => {
+    document.body.classList.toggle('dark-mode');
+    if (document.body.classList.contains('dark-mode')) {
+        localStorage.setItem('darkMode', 'enabled');
+        darkModeIcon.classList.replace('fa-moon', 'fa-sun');
+    } else {
+        localStorage.setItem('darkMode', 'disabled');
+        darkModeIcon.classList.replace('fa-sun', 'fa-moon');
+    }
+});
