@@ -10,11 +10,11 @@
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
-    <!-- Dark Mode Toggle -->
-    <button id="dark-mode-btn" class="dark-mode-toggle" aria-label="Toggle Dark Mode">
-        <i class="fas fa-moon"></i>
-    </button>
+    <script>
+        if (localStorage.getItem('darkMode') === 'enabled') {
+            document.body.classList.add('dark-mode');
+        }
+    </script>
 
     <!-- Password Protection Overlay -->
     <div id="login-overlay">
@@ -56,7 +56,12 @@
         <!-- Main Content Area -->
         <main class="main-content">
             <header>
-                <h1>Monthly Budget Tracker</h1>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 15px;">
+                    <h1 style="margin-bottom: 0; text-align: left;">Monthly Budget Tracker</h1>
+                    <button id="dark-mode-btn" class="dark-mode-toggle" aria-label="Toggle Dark Mode" style="position: static; flex-shrink: 0; margin: 0;">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                </div>
 
                 <!-- Date and Progress Section -->
                 <div class="date-container">
@@ -70,11 +75,14 @@
                 <!-- Controls: Reset & Cloud Sync -->
                 <div class="controls-container">
                     <button class="btn-reset" onclick="resetMonthStatus()">
-                        <i class="fas fa-sync-alt"></i> New Month
+                        <i class="fas fa-sync-alt"></i> Reset Checkboxes
                     </button>
-                    <button class="btn-reset" id="sync-btn" onclick="manualSync()">
-                        <i class="fas fa-cloud"></i> Cloud Sync
-                    </button>
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                        <button class="btn-reset" id="sync-btn" onclick="manualSync()">
+                            <i class="fas fa-cloud"></i> Cloud Sync
+                        </button>
+                        <span id="sync-timestamp" style="font-size: 0.75rem; color: #94a3b8; text-align: center;"></span>
+                    </div>
                     <button class="btn-reset" onclick="openSettings()">
                         <i class="fas fa-cog"></i> Setup Sync
                     </button>
