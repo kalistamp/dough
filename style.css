@@ -1,15 +1,39 @@
 :root {
+    /* Existing Colors */
     --primary-color: #3b82f6;
-    --dark-color: #1e293b;
-    --light-color: #f8fafc;
     --expense-color: #ef4444;
     --income-color: #22c55e;
-    --sidebar-bg: #fff;
-    --warning-bg: #fef9c3;
     --warning-border: #facc15;
-    --overdue-bg: #fee2e2;
     --overdue-border: #f87171;
     --shadow: 0 4px 6px rgba(0,0,0,0.1);
+    
+    /* Dynamic Theme Variables (Light Mode Default) */
+    --bg-body: #e2e8f0;
+    --bg-card: #fff;
+    --text-main: #333;
+    --text-muted: #64748b;
+    --dark-color: #1e293b;
+    --border-color: #e2e8f0;
+    --input-bg: #fff;
+    --input-border: #dedede;
+    --notes-bg: #fefce8;
+    --warning-bg: #fef9c3;
+    --overdue-bg: #fee2e2;
+}
+
+body.dark-mode {
+    /* Dark Mode Overrides */
+    --bg-body: #0f172a;
+    --bg-card: #1e293b;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --dark-color: #f8fafc;
+    --border-color: #334155;
+    --input-bg: #0f172a;
+    --input-border: #475569;
+    --notes-bg: #334155;
+    --warning-bg: #713f12;
+    --overdue-bg: #7f1d1d;
 }
 
 * {
@@ -19,9 +43,36 @@
 }
 
 body {
-    background-color: #e2e8f0;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-body);
+    color: var(--text-main);
+    font-family: 'Inter', system-ui, sans-serif;
     min-height: 100vh;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+/* --- Dark Mode Toggle Button --- */
+.dark-mode-toggle {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    transition: all 0.3s;
+}
+
+.dark-mode-toggle:hover {
+    background: var(--bg-body);
 }
 
 /* --- Login Overlay --- */
@@ -39,7 +90,7 @@ body {
 }
 
 .login-box {
-    background: white;
+    background: var(--bg-card);
     padding: 2rem;
     border-radius: 10px;
     text-align: center;
@@ -48,13 +99,19 @@ body {
     box-shadow: var(--shadow);
 }
 
+.login-box h2 {
+    color: var(--dark-color);
+}
+
 .login-box input {
     width: 100%;
     padding: 10px;
     margin: 15px 0;
-    border: 1px solid #ccc;
+    background: var(--input-bg);
+    color: var(--text-main);
+    border: 1px solid var(--input-border);
     border-radius: 5px;
-    font-size: 16px; /* Prevent iOS zoom */
+    font-size: 16px;
 }
 
 .error-msg {
@@ -77,28 +134,23 @@ body {
 @media (min-width: 768px) {
     .dashboard-wrapper {
         display: grid;
-        grid-template-columns: 300px 1fr; /* Sidebar left, Content right */
+        grid-template-columns: 300px 1fr;
         align-items: start;
     }
-
-    /* Move sidebar to the left visually on desktop */
     .ledger-sidebar {
         order: -1;
     }
-    
-    /* Hide mobile toggle on desktop */
     .mobile-toggle {
         display: none; 
     }
-
     .ledger-content {
-        display: block !important; /* Force show content on desktop */
+        display: block !important;
     }
 }
 
 /* --- Sidebar (Ledger) --- */
 .ledger-sidebar {
-    background: var(--sidebar-bg);
+    background: var(--bg-card);
     border-radius: 10px;
     padding: 20px;
     box-shadow: var(--shadow);
@@ -106,7 +158,7 @@ body {
 }
 
 .ledger-header {
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 2px solid var(--border-color);
     padding-bottom: 10px;
     margin-bottom: 15px;
 }
@@ -118,7 +170,7 @@ body {
 }
 
 .ledger-header small {
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 0.8rem;
 }
 
@@ -132,7 +184,7 @@ body {
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 1px dashed #cbd5e1;
+    border-bottom: 1px dashed var(--border-color);
     padding-bottom: 4px;
 }
 
@@ -145,42 +197,41 @@ body {
 .ledger-table th {
     text-align: left;
     padding: 8px;
-    color: #64748b;
-    border-bottom: 1px solid #e2e8f0;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .ledger-table td {
     padding: 10px 8px;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .ledger-day-badge {
-    background: #e2e8f0;
+    background: var(--bg-body);
     padding: 2px 6px;
     border-radius: 4px;
     font-weight: bold;
     font-size: 0.8rem;
     color: var(--dark-color);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
 /* --- Notes Section --- */
 .notes-section {
-    margin-top: 20px;
-    border-top: 2px solid #e2e8f0;
-    padding-top: 15px;
+    /* Margin/padding handled inline in HTML to position at top */
 }
 
 #notes-area {
     width: 100%;
     height: 150px;
     padding: 10px;
-    border: 1px solid #cbd5e1;
+    border: 1px solid var(--input-border);
     border-radius: 8px;
     font-family: inherit;
     font-size: 0.9rem;
     resize: vertical;
-    background: #fefce8; /* Light yellow note look */
-    color: var(--dark-color);
+    background: var(--notes-bg);
+    color: var(--text-main);
 }
 
 #notes-area:focus {
@@ -196,8 +247,8 @@ details > summary {
     color: var(--dark-color);
     padding: 12px 15px;
     outline: none;
-    background: white;
-    border: 1px solid #cbd5e1;
+    background: var(--bg-card);
+    border: 1px solid var(--input-border);
     border-radius: 8px;
     display: flex;
     justify-content: space-between;
@@ -218,12 +269,12 @@ details[open] > summary {
 }
 
 details[open] .ledger-content {
-    border: 1px solid #cbd5e1;
+    border: 1px solid var(--input-border);
     border-top: none;
     border-bottom-left-radius: 8px;
     border-bottom-right-radius: 8px;
     padding: 15px;
-    background: white;
+    background: var(--bg-card);
 }
 
 /* --- Main Content Area --- */
@@ -248,7 +299,7 @@ h1 {
 .date-container {
     text-align: center;
     margin-bottom: 15px;
-    background: #fff;
+    background: var(--bg-card);
     padding: 15px;
     border-radius: 10px;
     box-shadow: var(--shadow);
@@ -262,7 +313,7 @@ h1 {
 }
 
 .progress-bg {
-    background-color: #e2e8f0;
+    background-color: var(--bg-body);
     border-radius: 20px;
     height: 10px;
     width: 100%;
@@ -280,7 +331,7 @@ h1 {
 
 .days-left-text {
     font-size: 0.8rem;
-    color: #64748b;
+    color: var(--text-muted);
 }
 
 /* --- Controls (Reset & Export) --- */
@@ -292,23 +343,23 @@ h1 {
 }
 
 .btn-reset {
-    background: white;
-    border: 1px solid #cbd5e1;
-    color: #64748b;
+    background: var(--bg-card);
+    border: 1px solid var(--input-border);
+    color: var(--text-muted);
     padding: 8px 15px;
     font-size: 0.85rem;
     border-radius: 20px;
     cursor: pointer;
     transition: all 0.2s;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    min-height: 44px; /* Mobile touch target */
+    min-height: 44px;
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
 .btn-reset:hover {
-    background: #f8fafc;
+    background: var(--bg-body);
     color: var(--primary-color);
     border-color: var(--primary-color);
 }
@@ -316,15 +367,15 @@ h1 {
 /* --- Period Sections --- */
 .period-section {
     margin-bottom: 30px;
-    background: #f8fafc;
+    background: var(--bg-body);
     border-radius: 10px;
     padding: 15px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
 }
 
 .period-header {
     margin-bottom: 15px;
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 2px solid var(--border-color);
     padding-bottom: 8px;
 }
 
@@ -335,7 +386,7 @@ h1 {
 }
 
 .period-header small {
-    color: #64748b;
+    color: var(--text-muted);
     font-weight: normal;
     margin-left: 5px;
 }
@@ -343,7 +394,7 @@ h1 {
 .period-summary {
     display: flex;
     justify-content: space-between;
-    background: white;
+    background: var(--bg-card);
     padding: 15px;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
@@ -355,7 +406,7 @@ h1 {
     flex-direction: column;
     align-items: center;
     font-size: 0.85rem;
-    color: #64748b;
+    color: var(--text-muted);
 }
 
 .summary-item span:last-child {
@@ -369,26 +420,16 @@ h1 {
     font-size: 1.1rem;
 }
 
-/* Mobile Font Sizing Fixes */
 @media (max-width: 480px) {
-    .summary-item span:last-child {
-        font-size: 0.9rem; /* Smaller on mobile */
-    }
-    .summary-item.highlight span:last-child {
-        font-size: 1rem;
-    }
-    .money {
-        font-size: 1rem; /* Smaller on mobile */
-    }
-    .period-summary {
-        padding: 10px; /* Less padding */
-        gap: 5px;
-    }
+    .summary-item span:last-child { font-size: 0.9rem; }
+    .summary-item.highlight span:last-child { font-size: 1rem; }
+    .money { font-size: 1rem; }
+    .period-summary { padding: 10px; gap: 5px; }
 }
 
 /* --- Monthly Summary Card (Bottom) --- */
 .monthly-summary-card {
-    background: white;
+    background: var(--bg-card);
     padding: 20px;
     border-radius: 10px;
     box-shadow: var(--shadow);
@@ -406,22 +447,22 @@ h1 {
 .balance-footer {
     margin-top: 20px;
     padding-top: 15px;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--border-color);
 }
 
 .balance-footer h3 {
     font-size: 0.9rem;
-    color: #64748b;
+    color: var(--text-muted);
     text-transform: uppercase;
     margin: 0;
     border: none;
 }
 
 .balance-footer h1 {
-    font-size: clamp(1.5rem, 6vw, 2.5rem); /* Adjusted clamp for better mobile fit */
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
     margin: 10px 0 0;
     color: var(--dark-color);
-    word-wrap: break-word; /* Prevent overflow */
+    word-wrap: break-word;
 }
 
 .inc-exp-container {
@@ -435,7 +476,7 @@ h1 {
 }
 
 .inc-exp-container > div:first-of-type {
-    border-right: 1px solid #dedede;
+    border-right: 1px solid var(--input-border);
 }
 
 .money {
@@ -443,6 +484,7 @@ h1 {
     letter-spacing: 1px;
     margin: 5px 0;
     font-weight: bold;
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
 .money.plus { color: var(--income-color); }
@@ -450,14 +492,14 @@ h1 {
 
 /* --- Forms --- */
 h3 {
-    border-bottom: 1px solid #bbb;
+    border-bottom: 1px solid var(--border-color);
     padding-bottom: 10px;
     margin: 0 0 15px;
     color: var(--dark-color);
 }
 
 .add-transaction {
-    background: white;
+    background: var(--bg-card);
     padding: 20px;
     border-radius: 10px;
     box-shadow: var(--shadow);
@@ -482,10 +524,12 @@ label {
 input[type="text"],
 input[type="number"],
 select {
-    border: 1px solid #dedede;
+    background: var(--input-bg);
+    color: var(--text-main);
+    border: 1px solid var(--input-border);
     border-radius: 5px;
     display: block;
-    font-size: 16px; /* Prevent iOS zoom */
+    font-size: 16px;
     padding: 10px;
     width: 100%;
 }
@@ -503,7 +547,7 @@ select {
     width: 100%;
     border-radius: 5px;
     transition: background 0.2s;
-    min-height: 44px; /* Mobile touch target */
+    min-height: 44px;
 }
 
 .btn:hover { background-color: #2563eb; }
@@ -514,9 +558,9 @@ select {
 }
 
 .list li {
-    background-color: #fff;
+    background-color: var(--bg-card);
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    color: #333;
+    color: var(--text-main);
     display: flex;
     justify-content: space-between;
     position: relative;
@@ -531,7 +575,6 @@ select {
 .list li.plus { border-right: 5px solid var(--income-color); }
 .list li.minus { border-right: 5px solid var(--expense-color); }
 
-/* Status Styles */
 .list li.overdue {
     background-color: var(--overdue-bg);
     border-left-color: var(--overdue-border);
@@ -549,7 +592,7 @@ select {
 }
 
 input[type="checkbox"] {
-    width: 24px; /* Larger for mobile */
+    width: 24px;
     height: 24px;
     cursor: pointer;
     accent-color: var(--primary-color);
@@ -557,15 +600,15 @@ input[type="checkbox"] {
 
 .list li.completed {
     opacity: 0.5;
-    background-color: #f1f5f9;
+    background-color: var(--bg-body);
     box-shadow: none;
-    border-right-color: #cbd5e1;
-    border-left-color: transparent; /* Remove warning borders if paid */
+    border-right-color: var(--border-color);
+    border-left-color: transparent;
 }
 
 .list li.completed .list-info span:not(.list-date) {
     text-decoration: line-through;
-    color: #94a3b8;
+    color: var(--text-muted);
 }
 
 .list-info {
@@ -575,8 +618,8 @@ input[type="checkbox"] {
 
 .list-date {
     font-size: 0.75rem;
-    color: #888;
-    background: #f1f5f9;
+    color: var(--text-muted);
+    background: var(--bg-body);
     padding: 2px 6px;
     border-radius: 4px;
     width: fit-content;
@@ -593,9 +636,9 @@ input[type="checkbox"] {
     border: none;
     cursor: pointer;
     font-size: 1.1rem;
-    color: #94a3b8;
+    color: var(--text-muted);
     transition: color 0.2s;
-    min-width: 44px; /* Mobile touch target */
+    min-width: 44px;
     min-height: 44px;
     display: flex;
     align-items: center;
