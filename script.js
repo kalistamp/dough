@@ -204,8 +204,12 @@ function renderTransactions() {
 
     const currentDay = new Date().getDate();
 
-    // Sort by day
-    transactions.sort((a, b) => a.day - b.day);
+    // Sort by type (income first), then by day
+    transactions.sort((a, b) => {
+        if (a.type === 'income' && b.type === 'expense') return -1;
+        if (a.type === 'expense' && b.type === 'income') return 1;
+        return a.day - b.day;
+    });
 
     transactions.forEach(transaction => {
         const sign = transaction.type === 'expense' ? '-' : '+';
