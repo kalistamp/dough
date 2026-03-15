@@ -136,16 +136,10 @@ function seedData() {
     
     if (!hasSeeded && transactions.length === 0) {
         transactions = [
-            { id: 1, text: 'Paycheck 1', amount: 1500, type: 'income', day: 6, paid: false },
-            { id: 2, text: 'Paycheck 2', amount: 1500, type: 'income', day: 20, paid: false },
-            { id: 3, text: 'CUSTOM CASH', amount: 60, type: 'expense', day: 6, paid: false },
-            { id: 4, text: 'Lending Club', amount: 130, type: 'expense', day: 9, paid: false },
-            { id: 5, text: 'Car Payment', amount: 300, type: 'expense', day: 6, paid: false },
-            { id: 6, text: 'Simplicity', amount: 160, type: 'expense', day: 25, paid: false },
-            { id: 7, text: 'Flea Meds', amount: 50, type: 'expense', day: 6, paid: false },
-            { id: 8, text: 'Groceries', amount: 300, type: 'expense', day: 6, paid: false },
-            { id: 9, text: 'Gas', amount: 60, type: 'expense', day: 6, paid: false },
-            { id: 10, text: 'Personal', amount: 200, type: 'expense', day: 6, paid: false }
+            { id: 1, text: 'Paycheck', amount: 3000, type: 'income', day: 1, paid: false },
+            { id: 2, text: 'Rent', amount: 1500, type: 'expense', day: 5, paid: false },
+            { id: 3, text: 'Groceries', amount: 400, type: 'expense', day: 10, paid: false },
+            { id: 4, text: 'Utilities', amount: 150, type: 'expense', day: 15, paid: false }
         ];
         localStorage.setItem('hasSeeded', 'true');
         updateLocalStorage();
@@ -372,6 +366,31 @@ function resetMonthStatus() {
 // --- GITHUB GIST SYNC LOGIC ---
 
 let syncTimeout;
+let lastSyncedTime = null;
+
+function updateSyncTimestamp() {
+    const timestampEl = document.getElementById('sync-timestamp');
+    if (!timestampEl || !lastSyncedTime) return;
+    
+    const now = new Date();
+    const diffMs = now - lastSyncedTime;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    
+    let timeText = '';
+    if (diffSec < 60) {
+        timeText = `${diffSec} seconds ago`;
+    } else if (diffMin < 60) {
+        timeText = `${diffMin} min${diffMin > 1 ? 's' : ''} ago`;
+    } else {
+        timeText = `${diffHour} hour${diffHour > 1 ? 's' : ''} ago`;
+    }
+    
+    timestampEl.innerText = `Last synced: ${timeText}`;
+}
+
+setInterval(updateSyncTimestamp, 60000);
 
 // Auto-saves to Gist 1 second after any change is made
 function saveToGist() {
@@ -419,6 +438,8 @@ function saveToGist() {
             
             if(syncBtn) {
                 syncBtn.innerHTML = '<i class="fas fa-check-circle"></i> Saved';
+                lastSyncedTime = new Date();
+                updateSyncTimestamp();
                 setTimeout(() => {
                     syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
                 }, 2000);
@@ -494,6 +515,8 @@ async function syncFromCloud() {
             
             if(syncBtn) {
                 syncBtn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Loaded';
+                lastSyncedTime = new Date();
+                updateSyncTimestamp();
                 setTimeout(() => {
                     syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
                 }, 2000);
@@ -557,8 +580,7 @@ form.addEventListener('submit', handleTransactionSubmit);
 const darkModeBtn = document.getElementById('dark-mode-btn');
 const darkModeIcon = darkModeBtn.querySelector('i');
 
-if (localStorage.getItem('darkMode') === 'enabled') {
-    document.body.classList.add('dark-mode');
+if (document.body.classList.contains('dark-mode')) {
     darkModeIcon.classList.replace('fa-moon', 'fa-sun');
 }
 
