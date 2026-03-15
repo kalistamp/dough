@@ -52,9 +52,6 @@ body {
 
 /* --- Dark Mode Toggle Button --- */
 .dark-mode-toggle {
-    position: absolute;
-    top: 20px;
-    right: 20px;
     background: var(--bg-card);
     color: var(--text-main);
     border: 1px solid var(--border-color);
@@ -63,7 +60,6 @@ body {
     height: 40px;
     cursor: pointer;
     box-shadow: var(--shadow);
-    z-index: 100;
     display: flex;
     align-items: center;
     justify-content: center;
