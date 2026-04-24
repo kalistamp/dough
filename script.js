@@ -1,5 +1,5 @@
 // --- CONFIGURATION ---
-const MY_PASSWORD = "payme"; 
+const MY_PASSWORD = "p"; 
 const GIST_FILENAME = "budget-data.json";
 
 // Dynamic Configuration (Loaded from localStorage)
