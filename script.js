@@ -9,8 +9,6 @@ window.SUPABASE_CONFIG = {
 (function () {
     'use strict';
 
-    const URL_PLACEHOLDER = 'PUT_YOUR_SUPABASE_URL_HERE';
-    const KEY_PLACEHOLDER = 'PUT_YOUR_ANON_KEY_HERE';
     let clientInstance = null;
     let signedInUserId = null;
     let knownRemoteIds = new Set();
@@ -18,7 +16,7 @@ window.SUPABASE_CONFIG = {
     function configured() {
         const config = window.SUPABASE_CONFIG;
         return !!(config && config.url && config.anonKey && config.schema &&
-            config.url !== URL_PLACEHOLDER && config.anonKey !== KEY_PLACEHOLDER);
+            config.url.startsWith('https://'));
     }
 
     function client() {
