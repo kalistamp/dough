@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Monthly Budget</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <!-- Added Inter and IBM Plex Mono fonts -->
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -16,37 +16,15 @@
         }
     </script>
 
-    <!-- Password Protection Overlay -->
+    <!-- Supabase sign-in overlay -->
     <div id="login-overlay">
         <div class="login-box">
             <h2><i class="fas fa-lock"></i> Secured Budget</h2>
-            <p>Enter password to access your finances.</p>
-            <input type="password" id="password-input" placeholder="Enter Password">
-            <button id="login-btn">Unlock</button>
+            <p>Sign in to load your private budget.</p>
+            <input type="email" id="email-input" placeholder="Email" autocomplete="username">
+            <input type="password" id="password-input" placeholder="Password" autocomplete="current-password">
+            <button id="login-btn" class="btn">Sign in</button>
             <p id="login-error" class="error-msg"></p>
-        </div>
-    </div>
-
-    <!-- Settings Modal -->
-    <div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(30, 41, 59, 0.8); justify-content: center; align-items: center; z-index: 2000;">
-        <div class="login-box" style="max-width: 400px;">
-            <h2><i class="fas fa-cog"></i> Cloud Sync Setup</h2>
-            <p style="font-size: 0.9rem; margin-bottom: 15px; color: var(--text-muted);">Enter your GitHub credentials to enable cloud syncing.</p>
-            
-            <div style="text-align: left; margin-bottom: 10px;">
-                <label style="font-size: 0.85rem; margin-bottom: 5px;">GitHub Personal Access Token (with 'gist' scope)</label>
-                <input type="password" id="github-token-input" placeholder="ghp_..." style="margin-top: 5px;">
-            </div>
-            
-            <div style="text-align: left; margin-bottom: 15px;">
-                <label style="font-size: 0.85rem; margin-bottom: 5px;">Gist ID</label>
-                <input type="text" id="gist-id-input" placeholder="e.g. a1b2c3d4e5f6..." style="margin-top: 5px;">
-            </div>
-            
-            <div style="display: flex; gap: 10px;">
-                <button class="btn" id="save-settings-btn" style="margin-top: 0;">Save & Sync</button>
-                <button class="btn" id="close-settings-btn" style="margin-top: 0; background-color: #94a3b8;">Cancel</button>
-            </div>
         </div>
     </div>
 
@@ -72,7 +50,7 @@
                     <p id="days-left" class="days-left-text">Loading...</p>
                 </div>
 
-                <!-- Controls: Reset & Cloud Sync -->
+                <!-- Controls: reset, refresh and sign out -->
                 <div class="controls-container">
                     <button class="btn-reset" onclick="resetMonthStatus()">
                         <i class="fas fa-sync-alt"></i> Reset Checkboxes
@@ -83,8 +61,8 @@
                         </button>
                         <span id="sync-timestamp" style="font-size: 0.75rem; color: #94a3b8; text-align: center;"></span>
                     </div>
-                    <button class="btn-reset" onclick="openSettings()">
-                        <i class="fas fa-cog"></i> Setup Sync
+                    <button class="btn-reset" id="sign-out-btn">
+                        <i class="fas fa-right-from-bracket"></i> Sign out
                     </button>
                 </div>
             </header>
@@ -258,6 +236,7 @@
 
     </div>
 
-    <script src="script.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="script.js?v=2"></script>
 </body>
 </html>

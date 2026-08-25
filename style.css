@@ -333,6 +333,7 @@ h1 {
 /* --- Controls (Reset & Export) --- */
 .controls-container {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     gap: 10px;
     margin-bottom: 20px;
@@ -547,6 +548,7 @@ select {
 }
 
 .btn:hover { background-color: #2563eb; }
+.btn:disabled { cursor: wait; opacity: 0.7; }
 
 /* --- List --- */
 .list {

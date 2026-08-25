@@ -1,10 +1,142 @@
-// --- CONFIGURATION ---
-const MY_PASSWORD = "p"; 
-const GIST_FILENAME = "budget-data.json";
+// Public values injected into the deployed copy by GitHub Actions.
+window.SUPABASE_CONFIG = {
+    url: 'PUT_YOUR_SUPABASE_URL_HERE',
+    anonKey: 'PUT_YOUR_ANON_KEY_HERE',
+    schema: 'dough'
+};
 
-// Dynamic Configuration (Loaded from localStorage)
-let GITHUB_TOKEN = localStorage.getItem('githubToken') || "";
-let GIST_ID = localStorage.getItem('gistId') || "";
+// Supabase Auth and persistence. Kept inline so the application stays 3 files.
+(function () {
+    'use strict';
+
+    const URL_PLACEHOLDER = 'PUT_YOUR_SUPABASE_URL_HERE';
+    const KEY_PLACEHOLDER = 'PUT_YOUR_ANON_KEY_HERE';
+    let clientInstance = null;
+    let signedInUserId = null;
+    let knownRemoteIds = new Set();
+
+    function configured() {
+        const config = window.SUPABASE_CONFIG;
+        return !!(config && config.url && config.anonKey && config.schema &&
+            config.url !== URL_PLACEHOLDER && config.anonKey !== KEY_PLACEHOLDER);
+    }
+
+    function client() {
+        if (clientInstance) return clientInstance;
+        if (!configured() || !window.supabase || !window.supabase.createClient) return null;
+        const config = window.SUPABASE_CONFIG;
+        clientInstance = window.supabase.createClient(config.url, config.anonKey, {
+            db: { schema: config.schema },
+            auth: { persistSession: true, autoRefreshToken: true }
+        });
+        return clientInstance;
+    }
+
+    async function getSession() {
+        const c = client();
+        if (!c) return null;
+        const { data, error } = await c.auth.getSession();
+        if (error) throw error;
+        const session = data ? data.session : null;
+        signedInUserId = session && session.user ? session.user.id : null;
+        return session;
+    }
+
+    async function requireUserId() {
+        if (signedInUserId) return signedInUserId;
+        const session = await getSession();
+        if (!session || !session.user) throw new Error('Not signed in');
+        return session.user.id;
+    }
+
+    async function signIn(email, password) {
+        const c = client();
+        if (!c) return { ok: false, error: 'Cloud sync is not configured.' };
+        const { data, error } = await c.auth.signInWithPassword({ email, password });
+        if (error) return { ok: false, error: error.message };
+        signedInUserId = data.session.user.id;
+        knownRemoteIds = new Set();
+        return { ok: true, session: data.session };
+    }
+
+    async function signOut() {
+        const c = client();
+        signedInUserId = null;
+        knownRemoteIds = new Set();
+        if (c) await c.auth.signOut();
+    }
+
+    function rowToTransaction(row) {
+        return {
+            id: Number(row.id), text: row.text, amount: Number(row.amount),
+            type: row.type, day: Number(row.day), paid: !!row.paid
+        };
+    }
+
+    function transactionToRow(transaction, userId) {
+        return {
+            user_id: userId,
+            id: Number(transaction.id),
+            text: String(transaction.text || ''),
+            amount: Number(transaction.amount),
+            type: transaction.type === 'income' ? 'income' : 'expense',
+            day: Math.max(1, Math.min(31, Number(transaction.day))),
+            paid: !!transaction.paid
+        };
+    }
+
+    async function pull() {
+        const c = client();
+        if (!c) throw new Error('Cloud sync is not configured');
+        const [transactionResult, notesResult] = await Promise.all([
+            c.from('transactions').select('*').order('day').order('id'),
+            c.from('notes').select('body').eq('id', 1).maybeSingle()
+        ]);
+        if (transactionResult.error) throw transactionResult.error;
+        if (notesResult.error) throw notesResult.error;
+        const transactions = (transactionResult.data || []).map(rowToTransaction);
+        knownRemoteIds = new Set(transactions.map(item => item.id));
+        return {
+            transactions,
+            notes: notesResult.data ? notesResult.data.body || '' : ''
+        };
+    }
+
+    async function pushTransactions(transactions) {
+        const c = client();
+        if (!c) throw new Error('Cloud sync is not configured');
+        const userId = await requireUserId();
+        const rows = (transactions || []).map(item => transactionToRow(item, userId));
+        const localIds = new Set(rows.map(row => row.id));
+        if (rows.length) {
+            const { error } = await c.from('transactions').upsert(rows, {
+                onConflict: 'user_id,id'
+            });
+            if (error) throw error;
+        }
+        const removed = [...knownRemoteIds].filter(id => !localIds.has(id));
+        if (removed.length) {
+            const { error } = await c.from('transactions').delete().in('id', removed);
+            if (error) throw error;
+        }
+        knownRemoteIds = localIds;
+    }
+
+    async function pushNotes(notes) {
+        const c = client();
+        if (!c) throw new Error('Cloud sync is not configured');
+        const userId = await requireUserId();
+        const { error } = await c.from('notes').upsert({
+            user_id: userId, id: 1, body: String(notes || '')
+        }, { onConflict: 'user_id,id' });
+        if (error) throw error;
+    }
+
+    window.DoughCloud = {
+        configured, getSession, signIn, signOut, pull,
+        pushTransactions, pushNotes
+    };
+})();
 
 // --- SELECT DOM ELEMENTS ---
 // Monthly Totals
@@ -37,16 +169,11 @@ const submitBtn = document.getElementById('submit-btn');
 // Login Elements
 const loginOverlay = document.getElementById('login-overlay');
 const appContainer = document.getElementById('app-container');
+const emailInput = document.getElementById('email-input');
 const passwordInput = document.getElementById('password-input');
 const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
-
-// Settings Elements
-const settingsModal = document.getElementById('settings-modal');
-const githubTokenInput = document.getElementById('github-token-input');
-const gistIdInput = document.getElementById('gist-id-input');
-const saveSettingsBtn = document.getElementById('save-settings-btn');
-const closeSettingsBtn = document.getElementById('close-settings-btn');
+const signOutBtn = document.getElementById('sign-out-btn');
 
 // Header Elements
 const currentDateEl = document.getElementById('current-date');
@@ -56,37 +183,10 @@ const daysLeftEl = document.getElementById('days-left');
 // Notes Element
 const notesArea = document.getElementById('notes-area');
 
-// --- SETTINGS LOGIC ---
-function openSettings() {
-    githubTokenInput.value = GITHUB_TOKEN;
-    gistIdInput.value = GIST_ID;
-    settingsModal.style.display = 'flex';
-}
-
-function closeSettings() {
-    settingsModal.style.display = 'none';
-}
-
-saveSettingsBtn.addEventListener('click', () => {
-    GITHUB_TOKEN = githubTokenInput.value.trim();
-    GIST_ID = gistIdInput.value.trim();
-    
-    localStorage.setItem('githubToken', GITHUB_TOKEN);
-    localStorage.setItem('gistId', GIST_ID);
-    
-    closeSettings();
-    
-    // Attempt a sync immediately after saving
-    if (GITHUB_TOKEN && GIST_ID) {
-        syncFromCloud();
-    }
-});
-
-closeSettingsBtn.addEventListener('click', closeSettings);
-
 // --- STATE MANAGEMENT ---
 let transactions = [];
 let editState = { isEditing: false, id: null };
+let appInitialized = false;
 
 // Safely load local data initially so the app loads instantly
 try {
@@ -98,21 +198,45 @@ try {
 }
 
 // --- LOGIN LOGIC ---
-loginBtn.addEventListener('click', checkPassword);
+loginBtn.addEventListener('click', signIn);
+emailInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') signIn();
+});
 passwordInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') checkPassword();
+    if (e.key === 'Enter') signIn();
 });
 
-function checkPassword() {
-    if (passwordInput.value === MY_PASSWORD) {
-        loginOverlay.style.display = 'none';
-        appContainer.style.display = window.innerWidth >= 768 ? 'grid' : 'flex'; 
-        init(); 
-    } else {
-        loginError.innerText = "Incorrect Password";
+async function signIn() {
+    loginError.innerText = '';
+    loginBtn.disabled = true;
+    loginBtn.innerText = 'Signing in...';
+    try {
+        const result = await window.DoughCloud.signIn(
+            emailInput.value.trim(), passwordInput.value
+        );
+        if (!result.ok) throw new Error(result.error);
         passwordInput.value = '';
+        await showApp();
+    } catch (error) {
+        loginError.innerText = error.message || 'Unable to sign in';
+    } finally {
+        loginBtn.disabled = false;
+        loginBtn.innerText = 'Sign in';
     }
 }
+
+signOutBtn.addEventListener('click', async () => {
+    clearTimeout(syncTimeout);
+    saveQueued = false;
+    await window.DoughCloud.signOut();
+    appInitialized = false;
+    transactions = [];
+    notesArea.value = '';
+    localStorage.removeItem('budgetData');
+    localStorage.removeItem('budgetNotes');
+    appContainer.style.display = 'none';
+    loginOverlay.style.display = 'flex';
+});
 
 // --- DATE & PROGRESS LOGIC ---
 function updateDateAndProgress() {
@@ -130,22 +254,6 @@ function updateDateAndProgress() {
     daysLeftEl.innerText = `${daysInMonth - currentDay} days remaining in month`;
 }
 
-// --- DATA INITIALIZATION ---
-function seedData() {
-    const hasSeeded = localStorage.getItem('hasSeeded');
-    
-    if (!hasSeeded && transactions.length === 0) {
-        transactions = [
-            { id: 1, text: 'Paycheck', amount: 3000, type: 'income', day: 1, paid: false },
-            { id: 2, text: 'Rent', amount: 1500, type: 'expense', day: 5, paid: false },
-            { id: 3, text: 'Groceries', amount: 400, type: 'expense', day: 10, paid: false },
-            { id: 4, text: 'Utilities', amount: 150, type: 'expense', day: 15, paid: false }
-        ];
-        localStorage.setItem('hasSeeded', 'true');
-        updateLocalStorage();
-    }
-}
-
 // --- APP FUNCTIONS ---
 
 function handleTransactionSubmit(e) {
@@ -158,7 +266,7 @@ function handleTransactionSubmit(e) {
 
     const transactionData = {
         text: text.value,
-        amount: +amount.value, 
+        amount: Math.abs(+amount.value),
         type: typeInput.value,
         day: +dayInput.value,
         paid: false 
@@ -195,7 +303,18 @@ function handleTransactionSubmit(e) {
 }
 
 function generateID() {
-    return Math.floor(Math.random() * 100000000);
+    let id = Date.now();
+    while (transactions.some(item => item.id === id)) id += 1;
+    return id;
+}
+
+function escapeHTML(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
 }
 
 function renderTransactions() {
@@ -238,7 +357,7 @@ function renderTransactions() {
                 </div>
                 <div class="list-info">
                     <span class="list-date">Day ${transaction.day}</span>
-                    <span>${transaction.text}</span>
+                    <span>${escapeHTML(transaction.text)}</span>
                 </div>
             </div>
             <div>
@@ -276,7 +395,7 @@ function updateLedger() {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td><span class="ledger-day-badge">${exp.day}</span></td>
-            <td>${exp.text}</td>
+            <td>${escapeHTML(exp.text)}</td>
         `;
 
         if (exp.day >= 6 && exp.day <= 19) {
@@ -367,10 +486,12 @@ function resetMonthStatus() {
     }
 }
 
-// --- GITHUB GIST SYNC LOGIC ---
+// --- SUPABASE SYNC LOGIC ---
 
 let syncTimeout;
 let lastSyncedTime = null;
+let saveInFlight = false;
+let saveQueued = false;
 
 function updateSyncTimestamp() {
     const timestampEl = document.getElementById('sync-timestamp');
@@ -396,185 +517,101 @@ function updateSyncTimestamp() {
 
 setInterval(updateSyncTimestamp, 60000);
 
-// Auto-saves to Gist 1 second after any change is made
-function saveToGist() {
+function setSyncButton(icon, text) {
     const syncBtn = document.getElementById('sync-btn');
-    
-    if (!GITHUB_TOKEN || !GIST_ID) {
-        if(syncBtn) {
-            syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Setup Required';
-            setTimeout(() => {
-                syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-            }, 3000);
-        }
-        return;
-    }
-    
+    if (syncBtn) syncBtn.innerHTML = `<i class="fas ${icon}"></i> ${text}`;
+}
+
+function restoreSyncButton(delay = 2000) {
+    setTimeout(() => setSyncButton('fa-cloud', 'Cloud Sync'), delay);
+}
+
+// Debounce writes and serialize them so an older request cannot finish last.
+function saveToCloud() {
     clearTimeout(syncTimeout);
-    syncTimeout = setTimeout(async () => {
-        if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-        
-        const exportData = {
-            transactions: transactions,
-            notes: notesArea.value
-        };
-        
-        try {
-            const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-                method: 'PATCH',
-                headers: {
-                    'Authorization': `token ${GITHUB_TOKEN}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    files: {
-                        [GIST_FILENAME]: {
-                            content: JSON.stringify(exportData, null, 2)
-                        }
-                    }
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`GitHub API Error: ${response.status}`);
-            }
-            
-            if(syncBtn) {
-                syncBtn.innerHTML = '<i class="fas fa-check-circle"></i> Saved';
-                lastSyncedTime = new Date();
-                updateSyncTimestamp();
-                setTimeout(() => {
-                    syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-                }, 2000);
-            }
-        } catch (error) {
-            console.error("Error saving to Gist:", error);
-            if(syncBtn) {
-                syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
-                setTimeout(() => {
-                    syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-                }, 3000);
-            }
-        }
-    }, 1000);
+    syncTimeout = setTimeout(flushCloudSave, 750);
 }
 
-// Pulls latest data from Gist (runs on load, or when you click the Cloud Sync button)
-async function syncFromCloud() {
-    const syncBtn = document.getElementById('sync-btn');
-    
-    if (!GITHUB_TOKEN || !GIST_ID) {
-        if(syncBtn) {
-            syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Setup Required';
-            setTimeout(() => {
-                syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-            }, 3000);
-        }
+async function flushCloudSave() {
+    if (saveInFlight) {
+        saveQueued = true;
         return;
     }
-    
-    if(syncBtn) syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
-    
+    saveInFlight = true;
+    setSyncButton('fa-spinner fa-spin', 'Saving...');
     try {
-        const response = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-            headers: {
-                'Authorization': `token ${GITHUB_TOKEN}`,
-                'Accept': 'application/vnd.github.v3+json'
-            },
-            cache: 'no-store' // Prevent browser from caching old gist data
-        });
-        
-        if (!response.ok) {
-            throw new Error(`GitHub API Error: ${response.status}`);
-        }
-        
-        const gist = await response.json();
-        
-        if (gist.files && gist.files[GIST_FILENAME]) {
-            const content = gist.files[GIST_FILENAME].content;
-            const data = JSON.parse(content);
-            
-            // If Gist is completely empty, push our local data up to initialize it
-            if (Object.keys(data).length === 0) {
-                saveToGist();
-                return;
-            }
-
-            if (data.transactions) {
-                transactions = data.transactions;
-                notesArea.value = data.notes !== undefined ? data.notes : "";
-                localStorage.setItem('budgetNotes', notesArea.value);
-            } else if (Array.isArray(data)) {
-                transactions = data;
-            }
-            
-            // Update local storage with new cloud data
-            localStorage.setItem('budgetData', JSON.stringify(transactions));
-            
-            // Re-render UI
-            renderTransactions();
-            updateValues();
-            updateLedger();
-            
-            if(syncBtn) {
-                syncBtn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Loaded';
-                lastSyncedTime = new Date();
-                updateSyncTimestamp();
-                setTimeout(() => {
-                    syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-                }, 2000);
-            }
-        } else {
-            // File doesn't exist in gist yet, initialize it
-            saveToGist();
-        }
+        await Promise.all([
+            window.DoughCloud.pushTransactions(transactions),
+            window.DoughCloud.pushNotes(notesArea.value)
+        ]);
+        lastSyncedTime = new Date();
+        updateSyncTimestamp();
+        setSyncButton('fa-check-circle', 'Saved');
+        restoreSyncButton();
     } catch (error) {
-        console.error("Error loading from Gist:", error);
-        if(syncBtn) {
-            syncBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Load Error';
-            setTimeout(() => {
-                syncBtn.innerHTML = '<i class="fas fa-cloud"></i> Cloud Sync';
-            }, 3000);
+        console.error('Error saving to Supabase:', error);
+        setSyncButton('fa-exclamation-triangle', 'Save error');
+        restoreSyncButton(3500);
+    } finally {
+        saveInFlight = false;
+        if (saveQueued) {
+            saveQueued = false;
+            saveToCloud();
         }
     }
 }
 
-function manualSync() {
-    // When the user clicks the sync button, pull the latest data from the cloud
-    // (If they made changes on another device, this brings them in)
-    syncFromCloud();
+async function syncFromCloud() {
+    setSyncButton('fa-spinner fa-spin', 'Loading...');
+    try {
+        const data = await window.DoughCloud.pull();
+        transactions = data.transactions;
+        notesArea.value = data.notes;
+        localStorage.setItem('budgetData', JSON.stringify(transactions));
+        localStorage.setItem('budgetNotes', notesArea.value);
+        renderTransactions();
+        updateValues();
+        updateLedger();
+        lastSyncedTime = new Date();
+        updateSyncTimestamp();
+        setSyncButton('fa-cloud-download-alt', 'Loaded');
+        restoreSyncButton();
+    } catch (error) {
+        console.error('Error loading from Supabase:', error);
+        setSyncButton('fa-exclamation-triangle', 'Load error');
+        restoreSyncButton(3500);
+    }
 }
+
+function manualSync() { syncFromCloud(); }
 
 function updateLocalStorage() {
     localStorage.setItem('budgetData', JSON.stringify(transactions));
-    saveToGist(); // Trigger auto-save to cloud
+    saveToCloud();
 }
 
-function init() {
+async function init() {
+    if (appInitialized) return syncFromCloud();
+    appInitialized = true;
     updateDateAndProgress();
-    seedData();
-    
-    // Load local notes immediately
     const savedNotes = localStorage.getItem('budgetNotes');
-    if (savedNotes) {
-        notesArea.value = savedNotes;
-    }
-
-    // Render local data immediately so the app feels fast
+    if (savedNotes) notesArea.value = savedNotes;
     renderTransactions();
     updateValues();
     updateLedger();
-
-    // Then fetch the latest data from the cloud in the background
-    syncFromCloud();
+    await syncFromCloud();
 }
 
-// Auto-save notes when you click out of the text box (change event)
+async function showApp() {
+    await init();
+    loginOverlay.style.display = 'none';
+    appContainer.style.display = window.innerWidth >= 768 ? 'grid' : 'flex';
+}
+
 if (notesArea) {
-    notesArea.addEventListener('change', (e) => {
+    notesArea.addEventListener('input', (e) => {
         localStorage.setItem('budgetNotes', e.target.value);
-        saveToGist();
+        saveToCloud();
     });
 }
 
@@ -598,3 +635,19 @@ darkModeBtn.addEventListener('click', () => {
         darkModeIcon.classList.replace('fa-sun', 'fa-moon');
     }
 });
+
+async function boot() {
+    if (!window.DoughCloud || !window.DoughCloud.configured()) {
+        loginError.innerText = 'Cloud sync is not configured. Check the Pages deployment.';
+        loginBtn.disabled = true;
+        return;
+    }
+    try {
+        const session = await window.DoughCloud.getSession();
+        if (session) await showApp();
+    } catch (error) {
+        loginError.innerText = error.message || 'Unable to connect to Supabase';
+    }
+}
+
+boot();
