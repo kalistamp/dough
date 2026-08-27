@@ -53,6 +53,7 @@ jobs:
             echo "Supabase configuration substitution failed" >&2
             exit 1
           fi
+          node -e "const fs=require('fs'),vm=require('vm'); const source=fs.readFileSync('_site/script.js','utf8').split('// --- SELECT DOM ELEMENTS ---')[0]; const context={URL,window:{}}; vm.runInNewContext(source,context); if(!context.window.DoughCloud.configured()) throw new Error('Built Supabase configuration was rejected')"
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

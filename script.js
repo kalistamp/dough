@@ -9,8 +9,6 @@ window.SUPABASE_CONFIG = {
 (function () {
     'use strict';
 
-    const URL_PLACEHOLDER = 'PUT_YOUR_SUPABASE_URL_HERE';
-    const KEY_PLACEHOLDER = 'PUT_YOUR_ANON_KEY_HERE';
     let clientInstance = null;
     let signedInUserId = null;
     let currentRevision = 0;
@@ -18,9 +16,9 @@ window.SUPABASE_CONFIG = {
 
     function configured() {
         const config = window.SUPABASE_CONFIG;
-        if (!config || config.schema !== 'dough' || config.url === URL_PLACEHOLDER ||
-            config.anonKey === KEY_PLACEHOLDER || typeof config.anonKey !== 'string' ||
-            config.anonKey.length < 20) return false;
+        if (!config || config.schema !== 'dough' || typeof config.url !== 'string' ||
+            typeof config.anonKey !== 'string' || config.url.startsWith('PUT_') ||
+            config.anonKey.startsWith('PUT_') || config.anonKey.length < 20) return false;
         try {
             const url = new URL(config.url);
             return url.protocol === 'https:' && url.hostname.endsWith('.supabase.co') &&
