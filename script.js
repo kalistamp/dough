@@ -9,14 +9,25 @@ window.SUPABASE_CONFIG = {
 (function () {
     'use strict';
 
+    const URL_PLACEHOLDER = 'PUT_YOUR_SUPABASE_URL_HERE';
+    const KEY_PLACEHOLDER = 'PUT_YOUR_ANON_KEY_HERE';
     let clientInstance = null;
     let signedInUserId = null;
-    let knownRemoteIds = new Set();
+    let currentRevision = 0;
+    let realtimeChannel = null;
 
     function configured() {
         const config = window.SUPABASE_CONFIG;
-        return !!(config && config.url && config.anonKey && config.schema &&
-            config.url.startsWith('https://'));
+        if (!config || config.schema !== 'dough' || config.url === URL_PLACEHOLDER ||
+            config.anonKey === KEY_PLACEHOLDER || typeof config.anonKey !== 'string' ||
+            config.anonKey.length < 20) return false;
+        try {
+            const url = new URL(config.url);
+            return url.protocol === 'https:' && url.hostname.endsWith('.supabase.co') &&
+                !url.username && !url.password;
+        } catch (_) {
+            return false;
+        }
     }
 
     function client() {
@@ -33,11 +44,18 @@ window.SUPABASE_CONFIG = {
     async function getSession() {
         const c = client();
         if (!c) return null;
-        const { data, error } = await c.auth.getSession();
-        if (error) throw error;
-        const session = data ? data.session : null;
-        signedInUserId = session && session.user ? session.user.id : null;
-        return session;
+        const sessionResult = await c.auth.getSession();
+        if (sessionResult.error) throw sessionResult.error;
+        const session = sessionResult.data ? sessionResult.data.session : null;
+        if (!session) {
+            signedInUserId = null;
+            return null;
+        }
+        const userResult = await c.auth.getUser();
+        if (userResult.error) throw userResult.error;
+        const user = userResult.data ? userResult.data.user : null;
+        signedInUserId = user ? user.id : null;
+        return user ? { ...session, user } : null;
     }
 
     async function requireUserId() {
@@ -52,15 +70,18 @@ window.SUPABASE_CONFIG = {
         if (!c) return { ok: false, error: 'Cloud sync is not configured.' };
         const { data, error } = await c.auth.signInWithPassword({ email, password });
         if (error) return { ok: false, error: error.message };
+        if (!data.session || !data.user) return { ok: false, error: 'No active session was returned.' };
         signedInUserId = data.session.user.id;
-        knownRemoteIds = new Set();
+        currentRevision = 0;
         return { ok: true, session: data.session };
     }
 
     async function signOut() {
         const c = client();
+        if (c && realtimeChannel) await c.removeChannel(realtimeChannel);
+        realtimeChannel = null;
         signedInUserId = null;
-        knownRemoteIds = new Set();
+        currentRevision = 0;
         if (c) await c.auth.signOut();
     }
 
@@ -71,9 +92,8 @@ window.SUPABASE_CONFIG = {
         };
     }
 
-    function transactionToRow(transaction, userId) {
+    function transactionToData(transaction) {
         return {
-            user_id: userId,
             id: Number(transaction.id),
             text: String(transaction.text || ''),
             amount: Number(transaction.amount),
@@ -83,56 +103,115 @@ window.SUPABASE_CONFIG = {
         };
     }
 
-    async function pull() {
+    function applyChangesToSnapshot(transactionMap, notes, changes) {
+        let nextNotes = notes;
+        for (const change of changes || []) {
+            if (change.entity_type === 'transaction') {
+                const id = Number(change.entity_id);
+                if (change.deleted) transactionMap.delete(id);
+                else if (change.data) transactionMap.set(id, rowToTransaction(change.data));
+            } else if (change.entity_type === 'notes' && !change.deleted) {
+                nextNotes = change.data && typeof change.data.body === 'string' ? change.data.body : '';
+            }
+        }
+        return nextNotes;
+    }
+
+    async function readChangesSince(revision) {
         const c = client();
         if (!c) throw new Error('Cloud sync is not configured');
-        const [transactionResult, notesResult] = await Promise.all([
-            c.from('transactions').select('*').order('day').order('id'),
-            c.from('notes').select('body').eq('id', 1).maybeSingle()
-        ]);
-        if (transactionResult.error) throw transactionResult.error;
-        if (notesResult.error) throw notesResult.error;
-        const transactions = (transactionResult.data || []).map(rowToTransaction);
-        knownRemoteIds = new Set(transactions.map(item => item.id));
+        const { data, error } = await c.rpc('read_budget_changes_since', {
+            since_revision: Math.max(0, Number(revision) || 0)
+        });
+        if (error) throw error;
+        const result = data || {};
+        currentRevision = Math.max(0, Number(result.revision) || 0);
         return {
-            transactions,
-            notes: notesResult.data ? notesResult.data.body || '' : ''
+            revision: currentRevision,
+            resetRequired: !!result.reset_required,
+            changes: Array.isArray(result.changes) ? result.changes : []
         };
     }
 
-    async function pushTransactions(transactions) {
+    async function pull(attempt = 0) {
         const c = client();
         if (!c) throw new Error('Cloud sync is not configured');
         const userId = await requireUserId();
-        const rows = (transactions || []).map(item => transactionToRow(item, userId));
-        const localIds = new Set(rows.map(row => row.id));
-        if (rows.length) {
-            const { error } = await c.from('transactions').upsert(rows, {
-                onConflict: 'user_id,id'
-            });
-            if (error) throw error;
+        const stateResult = await c.rpc('ensure_budget_state');
+        if (stateResult.error) throw stateResult.error;
+        const startRevision = Math.max(0, Number(stateResult.data) || 0);
+        const [transactionResult, notesResult] = await Promise.all([
+            c.from('transactions').select('id,text,amount,type,day,paid')
+                .eq('user_id', userId).order('day').order('id').range(0, 4999),
+            c.from('notes').select('body').eq('user_id', userId).eq('id', 1).maybeSingle()
+        ]);
+        if (transactionResult.error) throw transactionResult.error;
+        if (notesResult.error) throw notesResult.error;
+        if ((transactionResult.data || []).length === 5000) {
+            throw new Error('Transaction safety limit reached; archive old rows before syncing.');
         }
-        const removed = [...knownRemoteIds].filter(id => !localIds.has(id));
-        if (removed.length) {
-            const { error } = await c.from('transactions').delete().in('id', removed);
-            if (error) throw error;
+        const transactionMap = new Map(
+            (transactionResult.data || []).map(row => [Number(row.id), rowToTransaction(row)])
+        );
+        let notes = notesResult.data ? notesResult.data.body || '' : '';
+        const delta = await readChangesSince(startRevision);
+        if (delta.resetRequired) {
+            if (attempt < 1) return pull(attempt + 1);
+            throw new Error('Budget changed too quickly to create a consistent snapshot. Try again.');
         }
-        knownRemoteIds = localIds;
+        notes = applyChangesToSnapshot(transactionMap, notes, delta.changes);
+        return {
+            transactions: [...transactionMap.values()],
+            notes,
+            revision: delta.revision
+        };
     }
 
-    async function pushNotes(notes) {
+    async function applyChanges(changes) {
+        const c = client();
+        if (!c) throw new Error('Cloud sync is not configured');
+        await requireUserId();
+        if (!Array.isArray(changes) || !changes.length) return currentRevision;
+        const { data, error } = await c.rpc('apply_budget_changes', {
+            expected_revision: currentRevision,
+            changes
+        });
+        if (error) throw error;
+        currentRevision = Math.max(0, Number(data) || 0);
+        return currentRevision;
+    }
+
+    async function subscribe(onSignal) {
         const c = client();
         if (!c) throw new Error('Cloud sync is not configured');
         const userId = await requireUserId();
-        const { error } = await c.from('notes').upsert({
-            user_id: userId, id: 1, body: String(notes || '')
-        }, { onConflict: 'user_id,id' });
-        if (error) throw error;
+        if (realtimeChannel) await c.removeChannel(realtimeChannel);
+        const handler = payload => {
+            const revision = Number(payload.new && payload.new.revision);
+            if (revision > currentRevision && typeof onSignal === 'function') onSignal();
+        };
+        realtimeChannel = c.channel(`dough-budget-${userId}`)
+            .on('postgres_changes', {
+                event: 'INSERT', schema: 'dough', table: 'budget_sync_state',
+                filter: `user_id=eq.${userId}`
+            }, handler)
+            .on('postgres_changes', {
+                event: 'UPDATE', schema: 'dough', table: 'budget_sync_state',
+                filter: `user_id=eq.${userId}`
+            }, handler)
+            .subscribe(status => {
+                if (status === 'SUBSCRIBED' && typeof onSignal === 'function') onSignal();
+            });
     }
 
     window.DoughCloud = {
         configured, getSession, signIn, signOut, pull,
-        pushTransactions, pushNotes
+        readChangesSince: () => readChangesSince(currentRevision),
+        applyChanges, subscribe, transactionToData,
+        getUserId: () => signedInUserId,
+        setRevision: revision => {
+            currentRevision = Math.max(0, Number(revision) || 0);
+        }
     };
 })();
 
@@ -185,14 +264,114 @@ const notesArea = document.getElementById('notes-area');
 let transactions = [];
 let editState = { isEditing: false, id: null };
 let appInitialized = false;
+let cacheUserId = null;
+let cachedTransactionIds = new Set();
+let notesCacheTimeout;
+const CACHE_PREFIX = 'dough:v2';
 
-// Safely load local data initially so the app loads instantly
-try {
-    const storedData = localStorage.getItem('budgetData');
-    transactions = storedData ? JSON.parse(storedData) : [];
-} catch (error) {
-    console.error("Error loading data:", error);
-    transactions = [];
+function cacheKey(suffix) {
+    return `${CACHE_PREFIX}:${cacheUserId}:${suffix}`;
+}
+
+function writeCacheIndex() {
+    if (!cacheUserId) return;
+    localStorage.setItem(cacheKey('transaction-ids'), JSON.stringify([...cachedTransactionIds]));
+}
+
+function cacheTransaction(transaction, updateIndex = true) {
+    if (!cacheUserId) return;
+    const id = Number(transaction.id);
+    localStorage.setItem(cacheKey(`transaction:${id}`), JSON.stringify(transaction));
+    if (!cachedTransactionIds.has(id)) {
+        cachedTransactionIds.add(id);
+        if (updateIndex) writeCacheIndex();
+    }
+}
+
+function deleteCachedTransaction(id) {
+    if (!cacheUserId) return;
+    localStorage.removeItem(cacheKey(`transaction:${Number(id)}`));
+    if (cachedTransactionIds.delete(Number(id))) writeCacheIndex();
+}
+
+function cacheNotes(value) {
+    if (cacheUserId) localStorage.setItem(cacheKey('notes'), String(value || ''));
+}
+
+function loadUserCache(userId) {
+    cacheUserId = userId;
+    cachedTransactionIds = new Set();
+    try {
+        const ids = JSON.parse(localStorage.getItem(cacheKey('transaction-ids')) || '[]');
+        if (Array.isArray(ids)) cachedTransactionIds = new Set(ids.map(Number).filter(Number.isSafeInteger));
+        transactions = [...cachedTransactionIds].map(id => {
+            const value = localStorage.getItem(cacheKey(`transaction:${id}`));
+            return value ? JSON.parse(value) : null;
+        }).filter(Boolean);
+        notesArea.value = localStorage.getItem(cacheKey('notes')) || '';
+
+        // One-time migration from the original unscoped, full-array cache.
+        if (!cachedTransactionIds.size) {
+            const legacy = JSON.parse(localStorage.getItem('budgetData') || '[]');
+            if (Array.isArray(legacy)) {
+                transactions = legacy;
+                for (const item of transactions) cacheTransaction(item, false);
+                writeCacheIndex();
+            }
+            const legacyNotes = localStorage.getItem('budgetNotes');
+            if (legacyNotes !== null) {
+                notesArea.value = legacyNotes;
+                cacheNotes(legacyNotes);
+            }
+        }
+        localStorage.removeItem('budgetData');
+        localStorage.removeItem('budgetNotes');
+        const savedChanges = JSON.parse(localStorage.getItem(cacheKey('pending')) || '[]');
+        if (Array.isArray(savedChanges)) {
+            pendingChanges = new Map(savedChanges
+                .filter(change => change && ['transaction', 'notes'].includes(change.entity_type) &&
+                    typeof change.entity_id === 'string' && ['upsert', 'delete'].includes(change.action))
+                .map(change => [changeKey(change), change]));
+        }
+        return {
+            ready: localStorage.getItem(cacheKey('ready')) === '1',
+            revision: Math.max(0, Number(localStorage.getItem(cacheKey('revision'))) || 0)
+        };
+    } catch (error) {
+        console.error('Error loading local cache:', error);
+        transactions = [];
+        notesArea.value = '';
+        pendingChanges = new Map();
+        return { ready: false, revision: 0 };
+    }
+}
+
+function cacheServerRevision(revision) {
+    if (!cacheUserId) return;
+    localStorage.setItem(cacheKey('revision'), String(Math.max(0, Number(revision) || 0)));
+    localStorage.setItem(cacheKey('ready'), '1');
+}
+
+function replaceUserCache(nextTransactions, notes, revision) {
+    if (!cacheUserId) return;
+    for (const id of cachedTransactionIds) localStorage.removeItem(cacheKey(`transaction:${id}`));
+    cachedTransactionIds = new Set();
+    for (const item of nextTransactions) cacheTransaction(item, false);
+    writeCacheIndex();
+    cacheNotes(notes);
+    cacheServerRevision(revision);
+}
+
+function clearUserCache() {
+    if (!cacheUserId) return;
+    for (const id of cachedTransactionIds) localStorage.removeItem(cacheKey(`transaction:${id}`));
+    localStorage.removeItem(cacheKey('transaction-ids'));
+    localStorage.removeItem(cacheKey('notes'));
+    localStorage.removeItem(cacheKey('revision'));
+    localStorage.removeItem(cacheKey('ready'));
+    localStorage.removeItem(cacheKey('pending'));
+    cachedTransactionIds = new Set();
+    cacheUserId = null;
 }
 
 // --- LOGIN LOGIC ---
@@ -225,13 +404,16 @@ async function signIn() {
 
 signOutBtn.addEventListener('click', async () => {
     clearTimeout(syncTimeout);
+    clearTimeout(remoteSyncTimeout);
+    clearTimeout(notesCacheTimeout);
     saveQueued = false;
+    pendingChanges.clear();
+    inFlightChanges.clear();
+    clearUserCache();
     await window.DoughCloud.signOut();
     appInitialized = false;
     transactions = [];
     notesArea.value = '';
-    localStorage.removeItem('budgetData');
-    localStorage.removeItem('budgetNotes');
     appContainer.style.display = 'none';
     loginOverlay.style.display = 'flex';
 });
@@ -262,18 +444,28 @@ function handleTransactionSubmit(e) {
         return;
     }
 
+    const parsedAmount = Number(amount.value);
+    const parsedDay = Number(dayInput.value);
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 0 || parsedAmount > 1000000000 ||
+        !Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31 || text.value.trim().length > 200) {
+        alert('Please enter a valid day, description, and amount.');
+        return;
+    }
+
     const transactionData = {
-        text: text.value,
-        amount: Math.abs(+amount.value),
+        text: text.value.trim(),
+        amount: parsedAmount,
         type: typeInput.value,
-        day: +dayInput.value,
+        day: parsedDay,
         paid: false 
     };
 
+    let changedTransaction;
     if (editState.isEditing) {
         transactions = transactions.map(item => {
             if (item.id === editState.id) {
-                return { ...item, ...transactionData, id: editState.id, paid: item.paid };
+                changedTransaction = { ...item, ...transactionData, id: editState.id, paid: item.paid };
+                return changedTransaction;
             }
             return item;
         });
@@ -287,9 +479,10 @@ function handleTransactionSubmit(e) {
             id: generateID()
         };
         transactions.push(newTransaction);
+        changedTransaction = newTransaction;
     }
 
-    updateLocalStorage();
+    queueTransactionUpsert(changedTransaction);
     renderTransactions();
     updateValues();
     updateLedger();
@@ -301,7 +494,10 @@ function handleTransactionSubmit(e) {
 }
 
 function generateID() {
-    let id = Date.now();
+    const random = new Uint32Array(2);
+    crypto.getRandomValues(random);
+    let id = random[0] * 0x200000 + (random[1] >>> 11);
+    if (!Number.isSafeInteger(id) || id <= 0) id = Date.now();
     while (transactions.some(item => item.id === id)) id += 1;
     return id;
 }
@@ -350,7 +546,8 @@ function renderTransactions() {
                 <div class="checkbox-container">
                     <input type="checkbox" 
                         ${transaction.paid ? 'checked' : ''} 
-                        onchange="togglePaid(${transaction.id})"
+                        data-action="toggle" data-transaction-id="${transaction.id}"
+                        aria-label="Mark ${escapeHTML(transaction.text)} as paid"
                     >
                 </div>
                 <div class="list-info">
@@ -361,10 +558,12 @@ function renderTransactions() {
             <div>
                 <span class="money">${sign}$${Math.abs(transaction.amount).toFixed(2)}</span>
                 <div class="list-actions" style="display:inline-block; margin-left:10px;">
-                    <button class="action-btn edit-btn" onclick="editTransaction(${transaction.id})">
+                    <button class="action-btn edit-btn" type="button" data-action="edit"
+                        data-transaction-id="${transaction.id}" aria-label="Edit ${escapeHTML(transaction.text)}">
                         <i class="fas fa-edit"></i>
                     </button>
-                    <button class="action-btn delete-btn" onclick="removeTransaction(${transaction.id})">
+                    <button class="action-btn delete-btn" type="button" data-action="delete"
+                        data-transaction-id="${transaction.id}" aria-label="Delete ${escapeHTML(transaction.text)}">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
@@ -442,7 +641,7 @@ function updateValues() {
 function removeTransaction(id) {
     if (confirm('Delete this transaction?')) {
         transactions = transactions.filter(transaction => transaction.id !== id);
-        updateLocalStorage();
+        queueTransactionDelete(id);
         renderTransactions();
         updateValues();
         updateLedger();
@@ -469,7 +668,7 @@ function togglePaid(id) {
     const item = transactions.find(t => t.id === id);
     if (item) {
         item.paid = !item.paid;
-        updateLocalStorage();
+        queueTransactionUpsert(item);
         renderTransactions();
         updateValues();
     }
@@ -477,8 +676,14 @@ function togglePaid(id) {
 
 function resetMonthStatus() {
     if(confirm("Are you sure? This will uncheck all items for the new month.")) {
-        transactions.forEach(t => t.paid = false);
-        updateLocalStorage();
+        transactions.forEach(t => {
+            if (t.paid) {
+                t.paid = false;
+                queueTransactionUpsert(t, false);
+            }
+        });
+        persistOutstandingChanges();
+        saveToCloud();
         renderTransactions();
         updateValues();
     }
@@ -490,6 +695,56 @@ let syncTimeout;
 let lastSyncedTime = null;
 let saveInFlight = false;
 let saveQueued = false;
+let remoteSyncTimeout;
+let remoteSyncInFlight = null;
+let pendingChanges = new Map();
+let inFlightChanges = new Map();
+
+function persistOutstandingChanges() {
+    if (!cacheUserId) return;
+    const outstanding = new Map([...inFlightChanges, ...pendingChanges]);
+    localStorage.setItem(cacheKey('pending'), JSON.stringify([...outstanding.values()]));
+}
+
+function changeKey(change) {
+    return `${change.entity_type}:${change.entity_id}`;
+}
+
+function queueTransactionUpsert(transaction, schedule = true) {
+    if (!transaction) return;
+    cacheTransaction(transaction);
+    const change = {
+        entity_type: 'transaction',
+        entity_id: String(transaction.id),
+        action: 'upsert',
+        data: window.DoughCloud.transactionToData(transaction)
+    };
+    pendingChanges.set(changeKey(change), change);
+    if (schedule) {
+        persistOutstandingChanges();
+        saveToCloud();
+    }
+}
+
+function queueTransactionDelete(id) {
+    deleteCachedTransaction(id);
+    const change = {
+        entity_type: 'transaction', entity_id: String(id),
+        action: 'delete', data: null
+    };
+    pendingChanges.set(changeKey(change), change);
+    persistOutstandingChanges();
+    saveToCloud();
+}
+
+function queueNotes(value) {
+    const change = {
+        entity_type: 'notes', entity_id: '1', action: 'upsert',
+        data: { body: String(value || '') }
+    };
+    pendingChanges.set(changeKey(change), change);
+    saveToCloud();
+}
 
 function updateSyncTimestamp() {
     const timestampEl = document.getElementById('sync-timestamp');
@@ -535,38 +790,110 @@ async function flushCloudSave() {
         saveQueued = true;
         return;
     }
+    if (!pendingChanges.size) return;
     saveInFlight = true;
+    const entries = [...pendingChanges.entries()];
+    for (const [key, change] of entries) {
+        if (pendingChanges.get(key) === change) pendingChanges.delete(key);
+    }
+    inFlightChanges = new Map(entries);
     setSyncButton('fa-spinner fa-spin', 'Saving...');
+    let savedRevision = null;
     try {
-        await Promise.all([
-            window.DoughCloud.pushTransactions(transactions),
-            window.DoughCloud.pushNotes(notesArea.value)
-        ]);
+        const changes = entries.map(([, change]) => change);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+                savedRevision = await window.DoughCloud.applyChanges(changes);
+                break;
+            } catch (error) {
+                const conflict = error && (error.code === '40001' ||
+                    String(error.message || '').includes('DOUGH_REVISION_CONFLICT'));
+                if (!conflict || attempt === 1) throw error;
+                await syncRemoteChanges(new Set(entries.map(([key]) => key)));
+            }
+        }
+        cacheServerRevision(savedRevision);
         lastSyncedTime = new Date();
         updateSyncTimestamp();
         setSyncButton('fa-check-circle', 'Saved');
         restoreSyncButton();
     } catch (error) {
+        for (const [key, change] of entries) {
+            if (!pendingChanges.has(key)) pendingChanges.set(key, change);
+        }
         console.error('Error saving to Supabase:', error);
         setSyncButton('fa-exclamation-triangle', 'Save error');
         restoreSyncButton(3500);
     } finally {
+        inFlightChanges = new Map();
+        persistOutstandingChanges();
         saveInFlight = false;
-        if (saveQueued) {
+        if (saveQueued || pendingChanges.size) {
             saveQueued = false;
             saveToCloud();
         }
     }
 }
 
-async function syncFromCloud() {
+function applyRemoteChanges(changes, protectedKeys = new Set()) {
+    let changedTransactions = false;
+    let changedNotes = false;
+    for (const change of changes || []) {
+        if (protectedKeys.has(changeKey(change))) continue;
+        if (change.entity_type === 'transaction') {
+            const id = Number(change.entity_id);
+            if (change.deleted) {
+                transactions = transactions.filter(item => item.id !== id);
+                deleteCachedTransaction(id);
+            } else if (change.data) {
+                const item = window.DoughCloud.transactionToData(change.data);
+                const index = transactions.findIndex(existing => existing.id === id);
+                if (index >= 0) transactions[index] = item;
+                else transactions.push(item);
+                cacheTransaction(item);
+            }
+            changedTransactions = true;
+        } else if (change.entity_type === 'notes' && !change.deleted) {
+            notesArea.value = change.data && typeof change.data.body === 'string'
+                ? change.data.body : '';
+            cacheNotes(notesArea.value);
+            changedNotes = true;
+        }
+    }
+    if (changedTransactions) {
+        renderTransactions();
+        updateValues();
+        updateLedger();
+    }
+    return changedTransactions || changedNotes;
+}
+
+function allProtectedChanges(extraKeys = new Set()) {
+    const protectedChanges = new Map([...inFlightChanges, ...pendingChanges]);
+    for (const key of extraKeys) {
+        if (inFlightChanges.has(key)) protectedChanges.set(key, inFlightChanges.get(key));
+        else if (pendingChanges.has(key)) protectedChanges.set(key, pendingChanges.get(key));
+    }
+    return protectedChanges;
+}
+
+function reapplyProtectedChanges(protectedChanges) {
+    applyRemoteChanges([...protectedChanges.values()].map(change => ({
+        entity_type: change.entity_type,
+        entity_id: change.entity_id,
+        deleted: change.action === 'delete',
+        data: change.data
+    })));
+}
+
+async function syncFromCloud(protectedChanges = new Map()) {
     setSyncButton('fa-spinner fa-spin', 'Loading...');
     try {
         const data = await window.DoughCloud.pull();
         transactions = data.transactions;
         notesArea.value = data.notes;
-        localStorage.setItem('budgetData', JSON.stringify(transactions));
-        localStorage.setItem('budgetNotes', notesArea.value);
+        replaceUserCache(transactions, notesArea.value, data.revision);
+        if (protectedChanges.size) reapplyProtectedChanges(protectedChanges);
         renderTransactions();
         updateValues();
         updateLedger();
@@ -574,30 +901,69 @@ async function syncFromCloud() {
         updateSyncTimestamp();
         setSyncButton('fa-cloud-download-alt', 'Loaded');
         restoreSyncButton();
+        return true;
     } catch (error) {
         console.error('Error loading from Supabase:', error);
         setSyncButton('fa-exclamation-triangle', 'Load error');
         restoreSyncButton(3500);
+        return false;
     }
 }
 
-function manualSync() { syncFromCloud(); }
+async function syncRemoteChanges(extraProtectedKeys = new Set()) {
+    if (remoteSyncInFlight) return remoteSyncInFlight;
+    remoteSyncInFlight = (async () => {
+        const protectedChanges = allProtectedChanges(extraProtectedKeys);
+        const delta = await window.DoughCloud.readChangesSince();
+        if (delta.resetRequired) return syncFromCloud(protectedChanges);
+        applyRemoteChanges(delta.changes, new Set(protectedChanges.keys()));
+        cacheServerRevision(delta.revision);
+        lastSyncedTime = new Date();
+        updateSyncTimestamp();
+        return true;
+    })();
+    try {
+        return await remoteSyncInFlight;
+    } finally {
+        remoteSyncInFlight = null;
+    }
+}
 
-function updateLocalStorage() {
-    localStorage.setItem('budgetData', JSON.stringify(transactions));
-    saveToCloud();
+function scheduleRemoteSync() {
+    clearTimeout(remoteSyncTimeout);
+    remoteSyncTimeout = setTimeout(() => {
+        syncRemoteChanges().catch(error => console.error('Realtime sync failed:', error));
+    }, 200);
+}
+
+async function manualSync() {
+    setSyncButton('fa-spinner fa-spin', 'Syncing...');
+    try {
+        await syncRemoteChanges();
+        setSyncButton('fa-check-circle', 'Up to date');
+        restoreSyncButton();
+    } catch (error) {
+        console.error('Manual sync failed:', error);
+        setSyncButton('fa-exclamation-triangle', 'Sync error');
+        restoreSyncButton(3500);
+    }
 }
 
 async function init() {
-    if (appInitialized) return syncFromCloud();
+    if (appInitialized) return syncRemoteChanges();
     appInitialized = true;
+    const userId = window.DoughCloud.getUserId();
+    if (!userId) throw new Error('Your session could not be verified.');
+    const cached = loadUserCache(userId);
+    window.DoughCloud.setRevision(cached.revision);
     updateDateAndProgress();
-    const savedNotes = localStorage.getItem('budgetNotes');
-    if (savedNotes) notesArea.value = savedNotes;
     renderTransactions();
     updateValues();
     updateLedger();
-    await syncFromCloud();
+    if (cached.ready) await syncRemoteChanges();
+    else await syncFromCloud(allProtectedChanges());
+    await window.DoughCloud.subscribe(scheduleRemoteSync);
+    if (pendingChanges.size) saveToCloud();
 }
 
 async function showApp() {
@@ -608,16 +974,55 @@ async function showApp() {
 
 if (notesArea) {
     notesArea.addEventListener('input', (e) => {
-        localStorage.setItem('budgetNotes', e.target.value);
-        saveToCloud();
+        clearTimeout(notesCacheTimeout);
+        notesCacheTimeout = setTimeout(() => {
+            cacheNotes(e.target.value);
+            persistOutstandingChanges();
+        }, 300);
+        queueNotes(e.target.value);
     });
 }
 
+window.addEventListener('pagehide', () => {
+    cacheNotes(notesArea.value);
+    persistOutstandingChanges();
+});
+
 form.addEventListener('submit', handleTransactionSubmit);
+
+function transactionIdFromTarget(target) {
+    const control = target.closest('[data-transaction-id]');
+    if (!control) return null;
+    const id = Number(control.dataset.transactionId);
+    return Number.isSafeInteger(id) ? id : null;
+}
+
+for (const list of [list_p1, list_p2]) {
+    list.addEventListener('click', event => {
+        const control = event.target.closest('button[data-action]');
+        if (!control) return;
+        const id = transactionIdFromTarget(control);
+        if (id === null) return;
+        if (control.dataset.action === 'edit') editTransaction(id);
+        if (control.dataset.action === 'delete') removeTransaction(id);
+    });
+    list.addEventListener('change', event => {
+        if (!event.target.matches('input[data-action="toggle"]')) return;
+        const id = transactionIdFromTarget(event.target);
+        if (id !== null) togglePaid(id);
+    });
+}
+
+document.getElementById('reset-btn').addEventListener('click', resetMonthStatus);
+document.getElementById('sync-btn').addEventListener('click', manualSync);
 
 // --- DARK MODE LOGIC ---
 const darkModeBtn = document.getElementById('dark-mode-btn');
 const darkModeIcon = darkModeBtn.querySelector('i');
+
+if (localStorage.getItem('darkMode') === 'enabled') {
+    document.body.classList.add('dark-mode');
+}
 
 if (document.body.classList.contains('dark-mode')) {
     darkModeIcon.classList.replace('fa-moon', 'fa-sun');

@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -20,11 +20,21 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Test persistence
-        run: node --check script.js
+      - name: Test persistence and security invariants
+        run: |
+          node --check script.js
+          grep -q "rpc('apply_budget_changes'" script.js
+          grep -q 'Content-Security-Policy' index.html
+          if grep -Eqi 'on(click|change|input)=' index.html script.js; then
+            echo "Inline event handlers are blocked by the script CSP" >&2
+            exit 1
+          fi
 
       - name: Build Pages artifact
         env:
