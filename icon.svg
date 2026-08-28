@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Dough">
+  <rect width="512" height="512" rx="112" fill="#2563eb"/>
+  <g fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 92v328"/>
+    <path d="M332 170c0-34-34-52-76-52-42 0-74 22-74 60 0 36 32 50 74 62 46 13 80 27 80 68 0 40-36 62-80 62-44 0-80-18-80-52"/>
+  </g>
+</svg>

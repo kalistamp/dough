@@ -46,7 +46,7 @@ jobs:
             exit 1
           fi
           mkdir _site
-          cp index.html style.css script.js .nojekyll _site/
+          cp index.html style.css script.js manifest.webmanifest icon.svg .nojekyll _site/
           sed -i "s|PUT_YOUR_SUPABASE_URL_HERE|$SUPABASE_URL|" _site/script.js
           sed -i "s|PUT_YOUR_ANON_KEY_HERE|$SUPABASE_PUBLISHABLE_KEY|" _site/script.js
           if grep -q 'PUT_YOUR_' _site/script.js; then

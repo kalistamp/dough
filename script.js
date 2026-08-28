@@ -214,59 +214,154 @@ window.SUPABASE_CONFIG = {
 })();
 
 // --- SELECT DOM ELEMENTS ---
-// Monthly Totals
-const balance = document.getElementById('balance');
-const money_plus = document.getElementById('money-plus');
-const money_minus = document.getElementById('money-minus');
+const $ = id => document.getElementById(id);
 
-// Period 1 Elements
-const p1_income = document.getElementById('p1-income');
-const p1_expense = document.getElementById('p1-expense');
-const p1_balance = document.getElementById('p1-balance');
-const list_p1 = document.getElementById('list-p1');
-const ledger_list_p1 = document.getElementById('ledger-list-p1');
+const root = document.documentElement;
 
-// Period 2 Elements
-const p2_income = document.getElementById('p2-income');
-const p2_expense = document.getElementById('p2-expense');
-const p2_balance = document.getElementById('p2-balance');
-const list_p2 = document.getElementById('list-p2');
-const ledger_list_p2 = document.getElementById('ledger-list-p2');
+// Sign-in gate
+const loginOverlay = $('login-overlay');
+const loginForm = $('login-form');
+const emailInput = $('email-input');
+const passwordInput = $('password-input');
+const loginBtn = $('login-btn');
+const loginError = $('login-error');
 
-// Form Elements
-const form = document.getElementById('form');
-const typeInput = document.getElementById('type');
-const text = document.getElementById('text');
-const amount = document.getElementById('amount');
-const dayInput = document.getElementById('day');
-const submitBtn = document.getElementById('submit-btn');
+// Shell
+const appContainer = $('app-container');
+const topbar = document.querySelector('.topbar');
+const currentDateEl = $('current-date');
+const themeBtn = $('theme-btn');
+const menuBtn = $('menu-btn');
+const syncBtn = $('sync-btn');
+const syncText = $('sync-text');
 
-// Login Elements
-const loginOverlay = document.getElementById('login-overlay');
-const appContainer = document.getElementById('app-container');
-const emailInput = document.getElementById('email-input');
-const passwordInput = document.getElementById('password-input');
-const loginBtn = document.getElementById('login-btn');
-const loginError = document.getElementById('login-error');
-const signOutBtn = document.getElementById('sign-out-btn');
+// Hero
+const balance = $('balance');
+const moneyPlus = $('money-plus');
+const moneyMinus = $('money-minus');
+const nextDue = $('next-due');
+const nextDueText = $('next-due-text');
+const monthProgressEl = $('month-progress');
+const daysLeftEl = $('days-left');
 
-// Header Elements
-const currentDateEl = document.getElementById('current-date');
-const monthProgressEl = document.getElementById('month-progress');
-const daysLeftEl = document.getElementById('days-left');
+// Period views
+const periodTabs = $('period-tabs');
+const filterChips = $('filter-chips');
+const listP1 = $('list-p1');
+const listP2 = $('list-p2');
+const emptyP1 = $('empty-p1');
+const emptyP2 = $('empty-p2');
+const sectionP1 = $('section-p1');
+const sectionP2 = $('section-p2');
+const ledgerP1 = $('ledger-list-p1');
+const ledgerP2 = $('ledger-list-p2');
 
-// Notes Element
-const notesArea = document.getElementById('notes-area');
+// Bottom chrome
+const addBtn = $('add-btn');
+const bottombarLabel = $('bottombar-label');
+const bottombarValue = $('bottombar-value');
 
-// --- STATE MANAGEMENT ---
+// Sheets
+const entrySheet = $('entry-sheet');
+const entryForm = $('entry-form');
+const entryTitle = $('entry-title');
+const typeToggle = $('type-toggle');
+const textInput = $('text');
+const amountInput = $('amount');
+const dayInput = $('day');
+const dayPicker = $('daypicker');
+const submitBtn = $('submit-btn');
+const menuSheet = $('menu-sheet');
+const confirmSheet = $('confirm-sheet');
+const confirmTitle = $('confirm-title');
+const confirmText = $('confirm-text');
+const confirmOk = $('confirm-ok');
+const confirmCancel = $('confirm-cancel');
+const toastHost = $('toasts');
+
+const notesArea = $('notes-area');
+
+// --- STATE ---
 let transactions = [];
 let editState = { isEditing: false, id: null };
+let entryType = 'expense';
+let viewPeriod = 'all';
+let viewFilter = 'all';
 let appInitialized = false;
+let isLoading = true;
+
 let cacheUserId = null;
 let cachedTransactionIds = new Set();
 let notesCacheTimeout;
+let pendingChanges = new Map();
+let inFlightChanges = new Map();
 const CACHE_PREFIX = 'dough:v2';
+const THEME_KEY = 'dough:theme';
 
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+// --- FORMATTING ---
+const currencyFormat = new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2
+});
+
+function formatMoney(value) {
+    return currencyFormat.format(Number(value) || 0);
+}
+
+function formatSigned(value, type) {
+    const sign = type === 'expense' ? '-' : '+';
+    return `${sign}${currencyFormat.format(Math.abs(Number(value) || 0))}`;
+}
+
+// --- PERIOD & STATUS ---
+// Period 1 is the 6th-19th. Period 2 wraps the month boundary (20th-5th), so a
+// bare day-number comparison mislabels it: on the 25th a bill due on the 3rd
+// belongs to *next* month and is upcoming, not overdue. Resolve each day to a
+// real date first, then compare.
+function periodOf(day) {
+    return day >= 6 && day <= 19 ? 'p1' : 'p2';
+}
+
+function resolveDueDate(day, now) {
+    const today = now.getDate();
+    let monthOffset = 0;
+    if (day >= 20 && today <= 5) monthOffset = -1;
+    else if (day <= 5 && today >= 20) monthOffset = 1;
+    const year = now.getFullYear();
+    const month = now.getMonth() + monthOffset;
+    const daysInThatMonth = new Date(year, month + 1, 0).getDate();
+    return new Date(year, month, Math.min(day, daysInThatMonth));
+}
+
+function statusOf(transaction, now) {
+    if (transaction.paid) return 'paid';
+    if (transaction.type === 'income') return 'income';
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffDays = Math.round((resolveDueDate(transaction.day, now) - midnight) / 86400000);
+    if (diffDays < 0) return 'overdue';
+    if (diffDays <= 3) return 'due-soon';
+    return 'upcoming';
+}
+
+const STATUS_LABEL = {
+    paid: 'Paid',
+    overdue: 'Overdue',
+    'due-soon': 'Due soon',
+    upcoming: '',
+    income: 'Income'
+};
+
+function matchesFilter(status, filter) {
+    if (filter === 'all') return true;
+    if (filter === 'paid') return status === 'paid';
+    if (filter === 'unpaid') return status !== 'paid';
+    if (filter === 'overdue') return status === 'overdue';
+    return true;
+}
+
+// --- LOCAL CACHE ---
 function cacheKey(suffix) {
     return `${CACHE_PREFIX}:${cacheUserId}:${suffix}`;
 }
@@ -372,125 +467,530 @@ function clearUserCache() {
     cacheUserId = null;
 }
 
-// --- LOGIN LOGIC ---
-loginBtn.addEventListener('click', signIn);
-emailInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') signIn();
-});
-passwordInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') signIn();
-});
+// --- TOASTS ---
+function toast(message, kind = 'info', options = {}) {
+    const node = document.createElement('div');
+    node.className = `toast toast-${kind}`;
 
-async function signIn() {
-    loginError.innerText = '';
-    loginBtn.disabled = true;
-    loginBtn.innerText = 'Signing in...';
-    try {
-        const result = await window.DoughCloud.signIn(
-            emailInput.value.trim(), passwordInput.value
-        );
-        if (!result.ok) throw new Error(result.error);
-        passwordInput.value = '';
-        await showApp();
-    } catch (error) {
-        loginError.innerText = error.message || 'Unable to sign in';
-    } finally {
-        loginBtn.disabled = false;
-        loginBtn.innerText = 'Sign in';
-    }
-}
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'icon');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', kind === 'error' ? '#i-alert' : kind === 'success' ? '#i-check' : '#i-sync');
+    icon.appendChild(use);
+    node.appendChild(icon);
 
-signOutBtn.addEventListener('click', async () => {
-    clearTimeout(syncTimeout);
-    clearTimeout(remoteSyncTimeout);
-    clearTimeout(notesCacheTimeout);
-    saveQueued = false;
-    pendingChanges.clear();
-    inFlightChanges.clear();
-    clearUserCache();
-    await window.DoughCloud.signOut();
-    appInitialized = false;
-    transactions = [];
-    notesArea.value = '';
-    appContainer.style.display = 'none';
-    loginOverlay.style.display = 'flex';
-});
+    const label = document.createElement('span');
+    label.textContent = message;
+    node.appendChild(label);
 
-// --- DATE & PROGRESS LOGIC ---
-function updateDateAndProgress() {
-    const now = new Date();
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    currentDateEl.innerText = now.toLocaleDateString('en-US', options);
-
-    const currentDay = now.getDate();
-    const currentMonth = now.getMonth(); 
-    const currentYear = now.getFullYear();
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const percentage = (currentDay / daysInMonth) * 100;
-    
-    monthProgressEl.style.width = `${percentage}%`;
-    daysLeftEl.innerText = `${daysInMonth - currentDay} days remaining in month`;
-}
-
-// --- APP FUNCTIONS ---
-
-function handleTransactionSubmit(e) {
-    e.preventDefault();
-
-    if (text.value.trim() === '' || amount.value.trim() === '' || dayInput.value.trim() === '') {
-        alert('Please add a description, amount, and day');
-        return;
-    }
-
-    const parsedAmount = Number(amount.value);
-    const parsedDay = Number(dayInput.value);
-    if (!Number.isFinite(parsedAmount) || parsedAmount < 0 || parsedAmount > 1000000000 ||
-        !Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31 || text.value.trim().length > 200) {
-        alert('Please enter a valid day, description, and amount.');
-        return;
-    }
-
-    const transactionData = {
-        text: text.value.trim(),
-        amount: parsedAmount,
-        type: typeInput.value,
-        day: parsedDay,
-        paid: false 
+    let timer;
+    const dismiss = () => {
+        clearTimeout(timer);
+        node.classList.add('is-leaving');
+        setTimeout(() => node.remove(), 220);
     };
 
-    let changedTransaction;
-    if (editState.isEditing) {
-        transactions = transactions.map(item => {
-            if (item.id === editState.id) {
-                changedTransaction = { ...item, ...transactionData, id: editState.id, paid: item.paid };
-                return changedTransaction;
-            }
-            return item;
+    if (typeof options.onUndo === 'function') {
+        const undo = document.createElement('button');
+        undo.type = 'button';
+        undo.className = 'toast-undo';
+        undo.textContent = 'Undo';
+        undo.addEventListener('click', () => {
+            options.onUndo();
+            dismiss();
         });
-        
-        editState = { isEditing: false, id: null };
-        submitBtn.innerText = "Add Transaction";
-        submitBtn.style.backgroundColor = "var(--primary-color)";
-    } else {
-        const newTransaction = {
-            ...transactionData,
-            id: generateID()
-        };
-        transactions.push(newTransaction);
-        changedTransaction = newTransaction;
+        node.appendChild(undo);
     }
 
-    queueTransactionUpsert(changedTransaction);
-    renderTransactions();
-    updateValues();
-    updateLedger();
-
-    text.value = '';
-    amount.value = '';
-    dayInput.value = '';
-    text.focus();
+    toastHost.appendChild(node);
+    timer = setTimeout(dismiss, options.duration || (kind === 'error' ? 5200 : 3200));
+    return dismiss;
 }
 
+// --- SHEETS ---
+function openSheet(dialog) {
+    dialog.classList.remove('is-closing');
+    dialog.style.removeProperty('--drag');
+    if (!dialog.open) dialog.showModal();
+}
+
+function closeSheet(dialog) {
+    if (!dialog.open || dialog.classList.contains('is-closing')) return;
+    dialog.classList.add('is-closing');
+    const finish = () => {
+        dialog.close();
+        dialog.classList.remove('is-closing');
+        dialog.style.removeProperty('--drag');
+    };
+    if (reduceMotion.matches) finish();
+    else setTimeout(finish, 200);
+}
+
+for (const dialog of document.querySelectorAll('dialog.sheet')) {
+    dialog.addEventListener('cancel', event => {
+        event.preventDefault();
+        closeSheet(dialog);
+    });
+    // Tapping the dimmed backdrop closes the sheet.
+    dialog.addEventListener('click', event => {
+        if (event.target === dialog) closeSheet(dialog);
+    });
+    for (const closer of dialog.querySelectorAll('[data-close-sheet]')) {
+        closer.addEventListener('click', () => closeSheet(dialog));
+    }
+    attachSheetDrag(dialog);
+}
+
+// Drag the grip or header downward to dismiss, the way a native sheet behaves.
+function attachSheetDrag(dialog) {
+    const inner = dialog.querySelector('.sheet-inner');
+    const handles = dialog.querySelectorAll('.sheet-grip, .sheet-head');
+    let startY = 0;
+    let offset = 0;
+    let dragging = false;
+
+    const move = event => {
+        if (!dragging) return;
+        offset = Math.max(0, event.clientY - startY);
+        inner.style.setProperty('--drag', `${offset}px`);
+    };
+    const end = () => {
+        if (!dragging) return;
+        dragging = false;
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', end);
+        inner.style.transition = '';
+        if (offset > 110) closeSheet(dialog);
+        else inner.style.removeProperty('--drag');
+    };
+
+    for (const handle of handles) {
+        handle.addEventListener('pointerdown', event => {
+            if (event.target.closest('button')) return;
+            dragging = true;
+            startY = event.clientY;
+            offset = 0;
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', end);
+        });
+    }
+}
+
+let confirmResolver = null;
+
+function askConfirm(title, message, okLabel = 'Confirm') {
+    confirmTitle.textContent = title;
+    confirmText.textContent = message;
+    confirmOk.textContent = okLabel;
+    openSheet(confirmSheet);
+    return new Promise(resolve => {
+        confirmResolver = resolve;
+    });
+}
+
+function settleConfirm(value) {
+    closeSheet(confirmSheet);
+    if (confirmResolver) {
+        confirmResolver(value);
+        confirmResolver = null;
+    }
+}
+
+confirmOk.addEventListener('click', () => settleConfirm(true));
+confirmCancel.addEventListener('click', () => settleConfirm(false));
+confirmSheet.addEventListener('close', () => settleConfirm(false));
+
+// --- ANIMATED MONEY ---
+function animateMoney(el, value, options = {}) {
+    const target = Number(value) || 0;
+    const previous = el.dataset.value === undefined ? null : Number(el.dataset.value);
+    el.dataset.value = String(target);
+
+    if (options.negativeClass !== false) {
+        el.classList.toggle('is-negative', target < 0);
+    }
+
+    const format = options.format || formatMoney;
+    if (previous === null || previous === target || reduceMotion.matches) {
+        el.textContent = format(target);
+        return;
+    }
+
+    const start = performance.now();
+    const duration = 420;
+    const step = now => {
+        const progress = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        el.textContent = format(previous + (target - previous) * eased);
+        if (progress < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+}
+
+// --- HEADER DATE & MONTH PROGRESS ---
+function updateDateAndProgress() {
+    const now = new Date();
+    currentDateEl.textContent = now.toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric'
+    });
+
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const remaining = daysInMonth - now.getDate();
+    monthProgressEl.style.width = `${(now.getDate() / daysInMonth) * 100}%`;
+    daysLeftEl.textContent = remaining === 0
+        ? 'Last day of the month'
+        : `${remaining} day${remaining === 1 ? '' : 's'} left in ${now.toLocaleDateString('en-US', { month: 'long' })}`;
+}
+
+// --- SEGMENTED CONTROLS ---
+function movePill(container, activeButton) {
+    const pill = container.querySelector('.segmented-pill');
+    if (!pill || !activeButton) return;
+    if (!pill.dataset.ready) {
+        pill.classList.add('is-init');
+        pill.dataset.ready = '1';
+        requestAnimationFrame(() => pill.classList.remove('is-init'));
+    }
+    pill.style.setProperty('--pill-x', `${activeButton.offsetLeft - container.clientLeft}px`);
+    pill.style.setProperty('--pill-w', `${activeButton.offsetWidth}px`);
+}
+
+function syncPills() {
+    movePill(periodTabs, periodTabs.querySelector('.segment.is-active'));
+    movePill(typeToggle, typeToggle.querySelector('.segment.is-active'));
+}
+
+periodTabs.addEventListener('click', event => {
+    const button = event.target.closest('.segment');
+    if (!button) return;
+    viewPeriod = button.dataset.period;
+    for (const segment of periodTabs.querySelectorAll('.segment')) {
+        const active = segment === button;
+        segment.classList.toggle('is-active', active);
+        segment.setAttribute('aria-selected', active ? 'true' : 'false');
+    }
+    movePill(periodTabs, button);
+    renderTransactions();
+    renderBottomBar();
+});
+
+typeToggle.addEventListener('click', event => {
+    const button = event.target.closest('.segment');
+    if (!button) return;
+    entryType = button.dataset.type;
+    for (const segment of typeToggle.querySelectorAll('.segment')) {
+        const active = segment === button;
+        segment.classList.toggle('is-active', active);
+        segment.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    movePill(typeToggle, button);
+});
+
+filterChips.addEventListener('click', event => {
+    const chip = event.target.closest('.chip');
+    if (!chip) return;
+    viewFilter = chip.dataset.filter;
+    for (const item of filterChips.querySelectorAll('.chip')) {
+        const active = item === chip;
+        item.classList.toggle('is-active', active);
+        item.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    renderTransactions();
+});
+
+// --- DAY PICKER ---
+function buildDayPicker() {
+    const today = new Date().getDate();
+    const fragment = document.createDocumentFragment();
+    for (let day = 1; day <= 31; day += 1) {
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'day-cell';
+        cell.dataset.day = String(day);
+        cell.dataset.period = periodOf(day);
+        cell.setAttribute('role', 'radio');
+        cell.setAttribute('aria-checked', 'false');
+        cell.setAttribute('aria-label', `Day ${day}`);
+        cell.textContent = String(day);
+        if (day === today) cell.classList.add('is-today');
+        fragment.appendChild(cell);
+    }
+    dayPicker.appendChild(fragment);
+}
+
+function setSelectedDay(day) {
+    dayInput.value = day ? String(day) : '';
+    for (const cell of dayPicker.querySelectorAll('.day-cell')) {
+        const selected = Number(cell.dataset.day) === Number(day);
+        cell.classList.toggle('is-selected', selected);
+        cell.setAttribute('aria-checked', selected ? 'true' : 'false');
+    }
+}
+
+dayPicker.addEventListener('click', event => {
+    const cell = event.target.closest('.day-cell');
+    if (!cell) return;
+    setSelectedDay(Number(cell.dataset.day));
+    clearFieldError($('day-error'));
+});
+
+// --- RENDERING ---
+function buildRow(transaction, status) {
+    const item = document.createElement('li');
+    item.className = 'row';
+    item.dataset.status = status;
+    item.dataset.id = String(transaction.id);
+
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.appendChild(buildRowAction('edit', '#i-edit', `Edit ${transaction.text}`));
+    actions.appendChild(buildRowAction('delete', '#i-trash', `Delete ${transaction.text}`));
+    item.appendChild(actions);
+
+    const main = document.createElement('div');
+    main.className = 'row-main';
+
+    const checkWrap = document.createElement('label');
+    checkWrap.className = 'row-check';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !!transaction.paid;
+    checkbox.dataset.action = 'toggle';
+    checkbox.setAttribute('aria-label', `Mark ${transaction.text} as paid`);
+    checkWrap.appendChild(checkbox);
+    main.appendChild(checkWrap);
+
+    const info = document.createElement('div');
+    info.className = 'row-info';
+    const label = document.createElement('span');
+    label.className = 'row-text';
+    label.textContent = transaction.text;
+    info.appendChild(label);
+
+    const meta = document.createElement('span');
+    meta.className = 'row-meta';
+    const dayChip = document.createElement('span');
+    dayChip.className = 'day-chip';
+    dayChip.textContent = `Day ${transaction.day}`;
+    meta.appendChild(dayChip);
+    const statusLabel = STATUS_LABEL[status];
+    if (statusLabel) {
+        const tag = document.createElement('span');
+        tag.className = 'status-tag';
+        tag.textContent = statusLabel;
+        meta.appendChild(tag);
+    }
+    info.appendChild(meta);
+    main.appendChild(info);
+
+    const amount = document.createElement('span');
+    amount.className = `row-amount money ${transaction.type === 'expense' ? 'minus' : 'plus'}`;
+    amount.textContent = formatSigned(transaction.amount, transaction.type);
+    main.appendChild(amount);
+
+    item.appendChild(main);
+    return item;
+}
+
+function buildRowAction(action, iconId, label) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `row-action row-action-${action}`;
+    button.dataset.action = action;
+    button.setAttribute('aria-label', label);
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'icon');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', iconId);
+    icon.appendChild(use);
+    button.appendChild(icon);
+    return button;
+}
+
+function sortForDisplay(items) {
+    return [...items].sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
+        return a.day - b.day;
+    });
+}
+
+function renderSkeletons() {
+    for (const list of [listP1, listP2]) {
+        list.replaceChildren();
+        for (let i = 0; i < 3; i += 1) {
+            const placeholder = document.createElement('li');
+            placeholder.className = 'skeleton-row';
+            list.appendChild(placeholder);
+        }
+    }
+    emptyP1.hidden = true;
+    emptyP2.hidden = true;
+}
+
+function renderTransactions() {
+    if (isLoading) return;
+    const now = new Date();
+
+    sectionP1.hidden = viewPeriod === 'p2';
+    sectionP2.hidden = viewPeriod === 'p1';
+
+    for (const [list, empty, period] of [[listP1, emptyP1, 'p1'], [listP2, emptyP2, 'p2']]) {
+        const inPeriod = transactions.filter(item => periodOf(item.day) === period);
+        const visible = sortForDisplay(inPeriod)
+            .filter(item => matchesFilter(statusOf(item, now), viewFilter));
+
+        list.replaceChildren();
+        for (const item of visible) list.appendChild(buildRow(item, statusOf(item, now)));
+
+        empty.hidden = visible.length > 0;
+        if (!visible.length) {
+            empty.querySelector('span').textContent = inPeriod.length
+                ? 'Nothing matches this filter.'
+                : 'No entries in this period yet.';
+        }
+    }
+}
+
+function renderLedger() {
+    for (const [body, period] of [[ledgerP1, 'p1'], [ledgerP2, 'p2']]) {
+        const bills = transactions
+            .filter(item => item.type === 'expense' && periodOf(item.day) === period)
+            .sort((a, b) => a.day - b.day);
+
+        body.replaceChildren();
+        if (!bills.length) {
+            const row = document.createElement('tr');
+            row.className = 'ledger-empty';
+            const cell = document.createElement('td');
+            cell.colSpan = 2;
+            cell.textContent = 'No recurring bills yet.';
+            row.appendChild(cell);
+            body.appendChild(row);
+            continue;
+        }
+        for (const bill of bills) {
+            const row = document.createElement('tr');
+            const dayCell = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = 'ledger-day';
+            badge.textContent = String(bill.day);
+            dayCell.appendChild(badge);
+            const nameCell = document.createElement('td');
+            nameCell.textContent = bill.text;
+            row.appendChild(dayCell);
+            row.appendChild(nameCell);
+            body.appendChild(row);
+        }
+    }
+}
+
+function totalsFor(items) {
+    let income = 0;
+    let expense = 0;
+    let paid = 0;
+    let bills = 0;
+    for (const item of items) {
+        if (item.type === 'income') income += item.amount;
+        else {
+            expense += item.amount;
+            bills += 1;
+            if (item.paid) paid += 1;
+        }
+    }
+    return { income, expense, balance: income - expense, paid, bills };
+}
+
+function updateValues() {
+    const now = new Date();
+    const p1 = totalsFor(transactions.filter(item => periodOf(item.day) === 'p1'));
+    const p2 = totalsFor(transactions.filter(item => periodOf(item.day) === 'p2'));
+    const all = totalsFor(transactions);
+
+    animateMoney(balance, all.balance);
+    animateMoney(moneyPlus, all.income, { negativeClass: false });
+    animateMoney(moneyMinus, all.expense, { negativeClass: false });
+
+    for (const [prefix, totals] of [['p1', p1], ['p2', p2]]) {
+        animateMoney($(`${prefix}-income`), totals.income, { negativeClass: false });
+        animateMoney($(`${prefix}-expense`), totals.expense, { negativeClass: false });
+        animateMoney($(`${prefix}-balance`), totals.balance);
+        $(`${prefix}-paid`).textContent = `${totals.paid} / ${totals.bills}`;
+        $(`${prefix}-paid-meter`).style.width =
+            `${totals.bills ? (totals.paid / totals.bills) * 100 : 0}%`;
+    }
+
+    renderChipCounts(now);
+    renderNextDue(now);
+    renderBottomBar({ p1, p2, all });
+}
+
+function renderChipCounts(now) {
+    const scope = transactions.filter(item =>
+        viewPeriod === 'all' ? true : periodOf(item.day) === viewPeriod);
+    const counts = { all: scope.length, unpaid: 0, overdue: 0, paid: 0 };
+    for (const item of scope) {
+        const status = statusOf(item, now);
+        if (status === 'paid') counts.paid += 1;
+        else counts.unpaid += 1;
+        if (status === 'overdue') counts.overdue += 1;
+    }
+    for (const [key, value] of Object.entries(counts)) {
+        const node = filterChips.querySelector(`[data-count="${key}"]`);
+        if (!node) continue;
+        node.textContent = String(value);
+        node.closest('.chip').classList.toggle('is-empty', value === 0 && key !== 'all');
+    }
+}
+
+function renderNextDue(now) {
+    const upcoming = transactions
+        .filter(item => item.type === 'expense' && !item.paid)
+        .map(item => ({ item, due: resolveDueDate(item.day, now) }))
+        .sort((a, b) => a.due - b.due);
+
+    if (!upcoming.length) {
+        nextDue.hidden = true;
+        return;
+    }
+
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const overdue = upcoming.filter(entry => entry.due < midnight);
+    nextDue.hidden = false;
+
+    if (overdue.length) {
+        const total = overdue.reduce((sum, entry) => sum + entry.item.amount, 0);
+        nextDueText.textContent = overdue.length === 1
+            ? `${overdue[0].item.text} is overdue — ${formatMoney(total)}`
+            : `${overdue.length} bills overdue — ${formatMoney(total)}`;
+        return;
+    }
+
+    const next = upcoming[0];
+    const days = Math.round((next.due - midnight) / 86400000);
+    const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+    nextDueText.textContent = `${next.item.text} due ${when} — ${formatMoney(next.item.amount)}`;
+}
+
+function renderBottomBar(precomputed) {
+    const totals = precomputed || {
+        p1: totalsFor(transactions.filter(item => periodOf(item.day) === 'p1')),
+        p2: totalsFor(transactions.filter(item => periodOf(item.day) === 'p2')),
+        all: totalsFor(transactions)
+    };
+    const active = viewPeriod === 'p1' ? totals.p1 : viewPeriod === 'p2' ? totals.p2 : totals.all;
+    bottombarLabel.textContent = viewPeriod === 'all'
+        ? 'Remaining this month'
+        : `Remaining in ${viewPeriod === 'p1' ? 'Period 1' : 'Period 2'}`;
+    animateMoney(bottombarValue, active.balance);
+}
+
+function renderAll() {
+    renderTransactions();
+    updateValues();
+    renderLedger();
+}
+
+// --- TRANSACTION ACTIONS ---
 function generateID() {
     const random = new Uint32Array(2);
     crypto.getRandomValues(random);
@@ -500,203 +1000,273 @@ function generateID() {
     return id;
 }
 
-function escapeHTML(value) {
-    return String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
+function setFieldError(node, message) {
+    node.textContent = message;
+    node.closest('.field').classList.add('is-invalid');
 }
 
-function renderTransactions() {
-    list_p1.innerHTML = '';
-    list_p2.innerHTML = '';
+function clearFieldError(node) {
+    node.textContent = '';
+    node.closest('.field').classList.remove('is-invalid');
+}
 
-    const currentDay = new Date().getDate();
+function openEntrySheet(transaction) {
+    clearFieldError($('text-error'));
+    clearFieldError($('amount-error'));
+    clearFieldError($('day-error'));
 
-    // Sort by type (income first), then by day
-    transactions.sort((a, b) => {
-        if (a.type === 'income' && b.type === 'expense') return -1;
-        if (a.type === 'expense' && b.type === 'income') return 1;
-        return a.day - b.day;
-    });
+    if (transaction) {
+        editState = { isEditing: true, id: transaction.id };
+        entryTitle.textContent = 'Edit entry';
+        submitBtn.textContent = 'Save changes';
+        textInput.value = transaction.text;
+        amountInput.value = transaction.amount;
+        setSelectedDay(transaction.day);
+        setEntryType(transaction.type);
+    } else {
+        editState = { isEditing: false, id: null };
+        entryTitle.textContent = 'Add entry';
+        submitBtn.textContent = 'Add entry';
+        textInput.value = '';
+        amountInput.value = '';
+        setSelectedDay(new Date().getDate());
+        setEntryType('expense');
+    }
 
-    transactions.forEach(transaction => {
-        const sign = transaction.type === 'expense' ? '-' : '+';
-        const itemClass = transaction.type === 'expense' ? 'minus' : 'plus';
-        const item = document.createElement('li');
-        
-        item.classList.add(itemClass);
-        
-        if (transaction.paid) {
-            item.classList.add('completed');
-        } else if (transaction.type === 'expense') {
-            if (transaction.day < currentDay) {
-                item.classList.add('overdue');
-            } else if (transaction.day >= currentDay && transaction.day <= currentDay + 3) {
-                item.classList.add('upcoming');
-            }
-        }
-
-        item.innerHTML = `
-            <div style="display:flex; align-items:center;">
-                <div class="checkbox-container">
-                    <input type="checkbox" 
-                        ${transaction.paid ? 'checked' : ''} 
-                        data-action="toggle" data-transaction-id="${transaction.id}"
-                        aria-label="Mark ${escapeHTML(transaction.text)} as paid"
-                    >
-                </div>
-                <div class="list-info">
-                    <span class="list-date">Day ${transaction.day}</span>
-                    <span>${escapeHTML(transaction.text)}</span>
-                </div>
-            </div>
-            <div>
-                <span class="money">${sign}$${Math.abs(transaction.amount).toFixed(2)}</span>
-                <div class="list-actions" style="display:inline-block; margin-left:10px;">
-                    <button class="action-btn edit-btn" type="button" data-action="edit"
-                        data-transaction-id="${transaction.id}" aria-label="Edit ${escapeHTML(transaction.text)}">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="action-btn delete-btn" type="button" data-action="delete"
-                        data-transaction-id="${transaction.id}" aria-label="Delete ${escapeHTML(transaction.text)}">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-            </div>
-        `;
-
-        // Period 1: 6th - 19th
-        // Period 2: 20th - 31st AND 1st - 5th
-        if (transaction.day >= 6 && transaction.day <= 19) {
-            list_p1.appendChild(item);
-        } else {
-            list_p2.appendChild(item);
-        }
+    openSheet(entrySheet);
+    requestAnimationFrame(() => {
+        movePill(typeToggle, typeToggle.querySelector('.segment.is-active'));
+        if (!transaction) textInput.focus();
     });
 }
 
-function updateLedger() {
-    ledger_list_p1.innerHTML = '';
-    ledger_list_p2.innerHTML = '';
-    
-    const expenses = transactions
-        .filter(t => t.type === 'expense')
-        .sort((a, b) => a.day - b.day);
-
-    expenses.forEach(exp => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td><span class="ledger-day-badge">${exp.day}</span></td>
-            <td>${escapeHTML(exp.text)}</td>
-        `;
-
-        if (exp.day >= 6 && exp.day <= 19) {
-            ledger_list_p1.appendChild(row);
-        } else {
-            ledger_list_p2.appendChild(row);
-        }
-    });
+function setEntryType(type) {
+    entryType = type === 'income' ? 'income' : 'expense';
+    for (const segment of typeToggle.querySelectorAll('.segment')) {
+        const active = segment.dataset.type === entryType;
+        segment.classList.toggle('is-active', active);
+        segment.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+    movePill(typeToggle, typeToggle.querySelector('.segment.is-active'));
 }
 
-function updateValues() {
-    const calcTotal = (items, type) => {
-        return items
-            .filter(item => item.type === type)
-            .reduce((acc, item) => (acc += item.amount), 0);
+entryForm.addEventListener('submit', event => {
+    event.preventDefault();
+
+    const description = textInput.value.trim();
+    const parsedAmount = Number(amountInput.value);
+    const parsedDay = Number(dayInput.value);
+    let valid = true;
+
+    clearFieldError($('text-error'));
+    clearFieldError($('amount-error'));
+    clearFieldError($('day-error'));
+
+    if (!description) {
+        setFieldError($('text-error'), 'Add a short description.');
+        valid = false;
+    } else if (description.length > 200) {
+        setFieldError($('text-error'), 'Keep it under 200 characters.');
+        valid = false;
+    }
+    if (!amountInput.value.trim() || !Number.isFinite(parsedAmount) ||
+        parsedAmount < 0 || parsedAmount > 1000000000) {
+        setFieldError($('amount-error'), 'Enter a valid amount.');
+        valid = false;
+    }
+    if (!Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31) {
+        setFieldError($('day-error'), 'Pick a day of the month.');
+        valid = false;
+    }
+    if (!valid) return;
+
+    const data = {
+        text: description,
+        amount: parsedAmount,
+        type: entryType,
+        day: parsedDay,
+        paid: false
     };
 
-    const p1_items = transactions.filter(t => t.day >= 6 && t.day <= 19);
-    const p2_items = transactions.filter(t => t.day >= 20 || t.day <= 5);
+    const wasEditing = editState.isEditing;
+    let changed;
+    if (wasEditing) {
+        transactions = transactions.map(item => {
+            if (item.id !== editState.id) return item;
+            changed = { ...item, ...data, id: editState.id, paid: item.paid };
+            return changed;
+        });
+    } else {
+        changed = { ...data, id: generateID() };
+        transactions.push(changed);
+    }
 
-    const p1_inc = calcTotal(p1_items, 'income');
-    const p1_exp = calcTotal(p1_items, 'expense');
-    const p1_bal = p1_inc - p1_exp;
-
-    const p2_inc = calcTotal(p2_items, 'income');
-    const p2_exp = calcTotal(p2_items, 'expense');
-    const p2_bal = p2_inc - p2_exp;
-
-    const total_inc = p1_inc + p2_inc;
-    const total_exp = p1_exp + p2_exp;
-    const total_bal = total_inc - total_exp;
-
-    p1_income.innerText = `+$${p1_inc.toFixed(2)}`;
-    p1_expense.innerText = `-$${p1_exp.toFixed(2)}`;
-    p1_balance.innerText = `$${p1_bal.toFixed(2)}`;
-
-    p2_income.innerText = `+$${p2_inc.toFixed(2)}`;
-    p2_expense.innerText = `-$${p2_exp.toFixed(2)}`;
-    p2_balance.innerText = `$${p2_bal.toFixed(2)}`;
-
-    money_plus.innerText = `+$${total_inc.toFixed(2)}`;
-    money_minus.innerText = `-$${total_exp.toFixed(2)}`;
-    balance.innerText = `$${total_bal.toFixed(2)}`;
-}
+    editState = { isEditing: false, id: null };
+    queueTransactionUpsert(changed);
+    renderAll();
+    closeSheet(entrySheet);
+    toast(wasEditing ? 'Entry updated' : 'Entry saved', 'success');
+});
 
 function removeTransaction(id) {
-    if (confirm('Delete this transaction?')) {
-        transactions = transactions.filter(transaction => transaction.id !== id);
-        queueTransactionDelete(id);
-        renderTransactions();
-        updateValues();
-        updateLedger();
-    }
-}
-
-function editTransaction(id) {
-    const itemToEdit = transactions.find(transaction => transaction.id === id);
-    if (!itemToEdit) return;
-    
-    text.value = itemToEdit.text;
-    amount.value = itemToEdit.amount;
-    dayInput.value = itemToEdit.day;
-    typeInput.value = itemToEdit.type;
-
-    editState = { isEditing: true, id: id };
-    submitBtn.innerText = "Update Transaction";
-    submitBtn.style.backgroundColor = "#f59e0b";
-
-    document.querySelector('.add-transaction').scrollIntoView({ behavior: 'smooth' });
+    const removed = transactions.find(item => item.id === id);
+    if (!removed) return;
+    transactions = transactions.filter(item => item.id !== id);
+    queueTransactionDelete(id);
+    renderAll();
+    toast(`Deleted "${removed.text}"`, 'info', {
+        duration: 6000,
+        onUndo: () => {
+            transactions.push(removed);
+            queueTransactionUpsert(removed);
+            renderAll();
+            toast('Restored', 'success');
+        }
+    });
 }
 
 function togglePaid(id) {
-    const item = transactions.find(t => t.id === id);
-    if (item) {
-        item.paid = !item.paid;
-        queueTransactionUpsert(item);
-        renderTransactions();
-        updateValues();
-    }
+    const item = transactions.find(entry => entry.id === id);
+    if (!item) return;
+    item.paid = !item.paid;
+    queueTransactionUpsert(item);
+    renderAll();
 }
 
-function resetMonthStatus() {
-    if(confirm("Are you sure? This will uncheck all items for the new month.")) {
-        transactions.forEach(t => {
-            if (t.paid) {
-                t.paid = false;
-                queueTransactionUpsert(t, false);
+async function resetMonthStatus() {
+    const paidCount = transactions.filter(item => item.paid).length;
+    if (!paidCount) {
+        toast('Nothing is checked off yet', 'info');
+        return;
+    }
+    const ok = await askConfirm(
+        'Reset checkboxes?',
+        `This unchecks ${paidCount} paid ${paidCount === 1 ? 'entry' : 'entries'} so you can start a new month. Amounts are not changed.`,
+        'Reset'
+    );
+    if (!ok) return;
+
+    const snapshot = transactions.filter(item => item.paid).map(item => item.id);
+    for (const item of transactions) {
+        if (item.paid) {
+            item.paid = false;
+            queueTransactionUpsert(item, false);
+        }
+    }
+    persistOutstandingChanges();
+    saveToCloud();
+    renderAll();
+    toast(`Unchecked ${snapshot.length} ${snapshot.length === 1 ? 'entry' : 'entries'}`, 'success', {
+        duration: 6000,
+        onUndo: () => {
+            for (const item of transactions) {
+                if (snapshot.includes(item.id)) {
+                    item.paid = true;
+                    queueTransactionUpsert(item, false);
+                }
             }
-        });
-        persistOutstandingChanges();
-        saveToCloud();
-        renderTransactions();
-        updateValues();
+            persistOutstandingChanges();
+            saveToCloud();
+            renderAll();
+        }
+    });
+}
+
+// --- ROW INTERACTION (tap + swipe) ---
+const SWIPE_REVEAL = 124;
+let swipe = null;
+
+function closeOpenRows(except) {
+    for (const row of document.querySelectorAll('.row.is-open')) {
+        if (row !== except) row.classList.remove('is-open');
     }
 }
 
-// --- SUPABASE SYNC LOGIC ---
+for (const list of [listP1, listP2]) {
+    list.addEventListener('click', event => {
+        const control = event.target.closest('button[data-action]');
+        if (!control) return;
+        const row = control.closest('.row');
+        const id = Number(row && row.dataset.id);
+        if (!Number.isSafeInteger(id)) return;
+        row.classList.remove('is-open');
+        if (control.dataset.action === 'edit') {
+            openEntrySheet(transactions.find(item => item.id === id));
+        } else if (control.dataset.action === 'delete') {
+            removeTransaction(id);
+        }
+    });
 
+    list.addEventListener('change', event => {
+        if (!event.target.matches('input[data-action="toggle"]')) return;
+        const row = event.target.closest('.row');
+        const id = Number(row && row.dataset.id);
+        if (Number.isSafeInteger(id)) togglePaid(id);
+    });
+
+    list.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        if (event.target.closest('button, input, label')) return;
+        const main = event.target.closest('.row-main');
+        if (!main) return;
+        swipe = {
+            row: main.closest('.row'),
+            main,
+            startX: event.clientX,
+            startY: event.clientY,
+            base: main.closest('.row').classList.contains('is-open') ? -SWIPE_REVEAL : 0,
+            active: false
+        };
+    });
+}
+
+document.addEventListener('pointermove', event => {
+    if (!swipe) return;
+    const dx = event.clientX - swipe.startX;
+    const dy = event.clientY - swipe.startY;
+
+    if (!swipe.active) {
+        if (Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 8) {
+            if (Math.abs(dy) > 10) swipe = null;
+            return;
+        }
+        swipe.active = true;
+        swipe.row.classList.add('is-dragging');
+        closeOpenRows(swipe.row);
+    }
+
+    const next = Math.max(-SWIPE_REVEAL, Math.min(0, swipe.base + dx));
+    swipe.main.style.transform = `translateX(${next}px)`;
+});
+
+document.addEventListener('pointerup', event => {
+    if (!swipe) return;
+    const current = swipe;
+    swipe = null;
+    if (!current.active) return;
+
+    const dx = event.clientX - current.startX;
+    const offset = Math.max(-SWIPE_REVEAL, Math.min(0, current.base + dx));
+    current.row.classList.remove('is-dragging');
+    current.main.style.removeProperty('transform');
+    current.row.classList.toggle('is-open', offset < -SWIPE_REVEAL / 2);
+});
+
+document.addEventListener('pointercancel', () => {
+    if (swipe && swipe.active) {
+        swipe.row.classList.remove('is-dragging');
+        swipe.main.style.removeProperty('transform');
+    }
+    swipe = null;
+});
+
+// --- SUPABASE SYNC ---
 let syncTimeout;
 let lastSyncedTime = null;
 let saveInFlight = false;
 let saveQueued = false;
 let remoteSyncTimeout;
 let remoteSyncInFlight = null;
-let pendingChanges = new Map();
-let inFlightChanges = new Map();
 
 function persistOutstandingChanges() {
     if (!cacheUserId) return;
@@ -744,40 +1314,36 @@ function queueNotes(value) {
     saveToCloud();
 }
 
+// Sync state now lives in a stable status pill; failures surface as a toast
+// instead of a 3.5s label swap nobody sees.
+function setSyncState(state, label) {
+    syncBtn.dataset.state = state;
+    syncText.textContent = label;
+}
+
 function updateSyncTimestamp() {
-    const timestampEl = document.getElementById('sync-timestamp');
-    if (!timestampEl || !lastSyncedTime) return;
-    
-    const now = new Date();
-    const diffMs = now - lastSyncedTime;
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHour = Math.floor(diffMin / 60);
-    
-    let timeText = '';
-    if (diffSec < 60) {
-        timeText = `${diffSec} seconds ago`;
-    } else if (diffMin < 60) {
-        timeText = `${diffMin} min${diffMin > 1 ? 's' : ''} ago`;
-    } else {
-        timeText = `${diffHour} hour${diffHour > 1 ? 's' : ''} ago`;
+    const node = $('sync-timestamp');
+    if (!node) return;
+    if (!lastSyncedTime) {
+        node.textContent = 'Not synced yet';
+        return;
     }
-    
-    timestampEl.innerText = `Last synced: ${timeText}`;
+    const seconds = Math.floor((Date.now() - lastSyncedTime) / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (seconds < 60) node.textContent = 'Synced just now';
+    else if (minutes < 60) node.textContent = `Synced ${minutes} min${minutes === 1 ? '' : 's'} ago`;
+    else node.textContent = `Synced ${hours} hour${hours === 1 ? '' : 's'} ago`;
 }
 
 setInterval(updateSyncTimestamp, 60000);
 
-function setSyncButton(icon, text) {
-    const syncBtn = document.getElementById('sync-btn');
-    if (syncBtn) syncBtn.innerHTML = `<i class="fas ${icon}"></i> ${text}`;
+function markSynced() {
+    lastSyncedTime = Date.now();
+    updateSyncTimestamp();
+    setSyncState('ok', 'Synced');
 }
 
-function restoreSyncButton(delay = 2000) {
-    setTimeout(() => setSyncButton('fa-cloud', 'Cloud Sync'), delay);
-}
-
-// Debounce writes and serialize them so an older request cannot finish last.
 function saveToCloud() {
     clearTimeout(syncTimeout);
     syncTimeout = setTimeout(flushCloudSave, 750);
@@ -795,7 +1361,7 @@ async function flushCloudSave() {
         if (pendingChanges.get(key) === change) pendingChanges.delete(key);
     }
     inFlightChanges = new Map(entries);
-    setSyncButton('fa-spinner fa-spin', 'Saving...');
+    setSyncState('busy', 'Saving');
     let savedRevision = null;
     try {
         const changes = entries.map(([, change]) => change);
@@ -811,17 +1377,14 @@ async function flushCloudSave() {
             }
         }
         cacheServerRevision(savedRevision);
-        lastSyncedTime = new Date();
-        updateSyncTimestamp();
-        setSyncButton('fa-check-circle', 'Saved');
-        restoreSyncButton();
+        markSynced();
     } catch (error) {
         for (const [key, change] of entries) {
             if (!pendingChanges.has(key)) pendingChanges.set(key, change);
         }
         console.error('Error saving to Supabase:', error);
-        setSyncButton('fa-exclamation-triangle', 'Save error');
-        restoreSyncButton(3500);
+        setSyncState('error', 'Not saved');
+        toast('Changes could not be saved. They are stored on this device and will retry.', 'error');
     } finally {
         inFlightChanges = new Map();
         persistOutstandingChanges();
@@ -858,11 +1421,7 @@ function applyRemoteChanges(changes, protectedKeys = new Set()) {
             changedNotes = true;
         }
     }
-    if (changedTransactions) {
-        renderTransactions();
-        updateValues();
-        updateLedger();
-    }
+    if (changedTransactions) renderAll();
     return changedTransactions || changedNotes;
 }
 
@@ -885,25 +1444,23 @@ function reapplyProtectedChanges(protectedChanges) {
 }
 
 async function syncFromCloud(protectedChanges = new Map()) {
-    setSyncButton('fa-spinner fa-spin', 'Loading...');
+    setSyncState('busy', 'Loading');
     try {
         const data = await window.DoughCloud.pull();
         transactions = data.transactions;
         notesArea.value = data.notes;
         replaceUserCache(transactions, notesArea.value, data.revision);
         if (protectedChanges.size) reapplyProtectedChanges(protectedChanges);
-        renderTransactions();
-        updateValues();
-        updateLedger();
-        lastSyncedTime = new Date();
-        updateSyncTimestamp();
-        setSyncButton('fa-cloud-download-alt', 'Loaded');
-        restoreSyncButton();
+        isLoading = false;
+        renderAll();
+        markSynced();
         return true;
     } catch (error) {
         console.error('Error loading from Supabase:', error);
-        setSyncButton('fa-exclamation-triangle', 'Load error');
-        restoreSyncButton(3500);
+        isLoading = false;
+        renderAll();
+        setSyncState('error', 'Offline');
+        toast('Could not reach the cloud. Showing the copy stored on this device.', 'error');
         return false;
     }
 }
@@ -916,8 +1473,8 @@ async function syncRemoteChanges(extraProtectedKeys = new Set()) {
         if (delta.resetRequired) return syncFromCloud(protectedChanges);
         applyRemoteChanges(delta.changes, new Set(protectedChanges.keys()));
         cacheServerRevision(delta.revision);
-        lastSyncedTime = new Date();
-        updateSyncTimestamp();
+        isLoading = false;
+        markSynced();
         return true;
     })();
     try {
@@ -935,18 +1492,136 @@ function scheduleRemoteSync() {
 }
 
 async function manualSync() {
-    setSyncButton('fa-spinner fa-spin', 'Syncing...');
+    setSyncState('busy', 'Syncing');
     try {
         await syncRemoteChanges();
-        setSyncButton('fa-check-circle', 'Up to date');
-        restoreSyncButton();
+        renderAll();
+        toast('Up to date', 'success');
     } catch (error) {
         console.error('Manual sync failed:', error);
-        setSyncButton('fa-exclamation-triangle', 'Sync error');
-        restoreSyncButton(3500);
+        setSyncState('error', 'Sync failed');
+        toast('Sync failed. Your changes are safe on this device.', 'error');
     }
 }
 
+// --- MENU ---
+menuBtn.addEventListener('click', () => {
+    updateSyncTimestamp();
+    openSheet(menuSheet);
+});
+
+$('menu-sync').addEventListener('click', () => {
+    closeSheet(menuSheet);
+    manualSync();
+});
+
+$('menu-reset').addEventListener('click', () => {
+    closeSheet(menuSheet);
+    setTimeout(resetMonthStatus, 220);
+});
+
+$('menu-signout').addEventListener('click', async () => {
+    closeSheet(menuSheet);
+    const ok = await askConfirm(
+        'Sign out?',
+        'Your budget stays in the cloud. The copy cached on this device is cleared.',
+        'Sign out'
+    );
+    if (ok) signOutOfApp();
+});
+
+syncBtn.addEventListener('click', manualSync);
+addBtn.addEventListener('click', () => openEntrySheet(null));
+
+async function signOutOfApp() {
+    clearTimeout(syncTimeout);
+    clearTimeout(remoteSyncTimeout);
+    clearTimeout(notesCacheTimeout);
+    saveQueued = false;
+    pendingChanges.clear();
+    inFlightChanges.clear();
+    clearUserCache();
+    await window.DoughCloud.signOut();
+    appInitialized = false;
+    isLoading = true;
+    transactions = [];
+    notesArea.value = '';
+    appContainer.hidden = true;
+    loginOverlay.hidden = false;
+    loginOverlay.dataset.state = 'form';
+}
+
+// --- NOTES ---
+notesArea.addEventListener('input', event => {
+    clearTimeout(notesCacheTimeout);
+    notesCacheTimeout = setTimeout(() => {
+        cacheNotes(event.target.value);
+        persistOutstandingChanges();
+    }, 300);
+    queueNotes(event.target.value);
+});
+
+window.addEventListener('pagehide', () => {
+    cacheNotes(notesArea.value);
+    persistOutstandingChanges();
+});
+
+// --- THEME ---
+function effectiveDark() {
+    if (root.classList.contains('theme-dark')) return true;
+    if (root.classList.contains('theme-light')) return false;
+    return darkQuery.matches;
+}
+
+function syncThemeColor() {
+    const color = getComputedStyle(document.body).backgroundColor;
+    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+        meta.setAttribute('content', color);
+    }
+}
+
+function applyTheme(preference) {
+    root.classList.toggle('theme-dark', preference === 'dark');
+    root.classList.toggle('theme-light', preference === 'light');
+    requestAnimationFrame(syncThemeColor);
+}
+
+function toggleTheme() {
+    const next = effectiveDark() ? 'light' : 'dark';
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+}
+
+themeBtn.addEventListener('click', () => {
+    if (!document.startViewTransition || reduceMotion.matches) {
+        toggleTheme();
+        return;
+    }
+    document.startViewTransition(() => toggleTheme());
+});
+
+darkQuery.addEventListener('change', syncThemeColor);
+
+// --- SIGN IN ---
+loginForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    loginError.textContent = '';
+    loginBtn.disabled = true;
+    loginBtn.dataset.busy = '1';
+    try {
+        const result = await window.DoughCloud.signIn(emailInput.value.trim(), passwordInput.value);
+        if (!result.ok) throw new Error(result.error);
+        passwordInput.value = '';
+        await showApp();
+    } catch (error) {
+        loginError.textContent = error.message || 'Unable to sign in';
+    } finally {
+        loginBtn.disabled = false;
+        loginBtn.dataset.busy = '0';
+    }
+});
+
+// --- BOOT ---
 async function init() {
     if (appInitialized) return syncRemoteChanges();
     appInitialized = true;
@@ -955,99 +1630,55 @@ async function init() {
     const cached = loadUserCache(userId);
     window.DoughCloud.setRevision(cached.revision);
     updateDateAndProgress();
-    renderTransactions();
-    updateValues();
-    updateLedger();
+
+    if (transactions.length) {
+        isLoading = false;
+        renderAll();
+    }
+
     if (cached.ready) await syncRemoteChanges();
     else await syncFromCloud(allProtectedChanges());
+
+    isLoading = false;
+    renderAll();
+    syncPills();
+
     await window.DoughCloud.subscribe(scheduleRemoteSync);
     if (pendingChanges.size) saveToCloud();
 }
 
 async function showApp() {
+    loginOverlay.hidden = true;
+    appContainer.hidden = false;
+    renderSkeletons();
+    requestAnimationFrame(syncPills);
     await init();
-    loginOverlay.style.display = 'none';
-    appContainer.style.display = window.innerWidth >= 768 ? 'grid' : 'flex';
 }
 
-if (notesArea) {
-    notesArea.addEventListener('input', (e) => {
-        clearTimeout(notesCacheTimeout);
-        notesCacheTimeout = setTimeout(() => {
-            cacheNotes(e.target.value);
-            persistOutstandingChanges();
-        }, 300);
-        queueNotes(e.target.value);
-    });
-}
+window.addEventListener('resize', syncPills);
 
-window.addEventListener('pagehide', () => {
-    cacheNotes(notesArea.value);
-    persistOutstandingChanges();
-});
-
-form.addEventListener('submit', handleTransactionSubmit);
-
-function transactionIdFromTarget(target) {
-    const control = target.closest('[data-transaction-id]');
-    if (!control) return null;
-    const id = Number(control.dataset.transactionId);
-    return Number.isSafeInteger(id) ? id : null;
-}
-
-for (const list of [list_p1, list_p2]) {
-    list.addEventListener('click', event => {
-        const control = event.target.closest('button[data-action]');
-        if (!control) return;
-        const id = transactionIdFromTarget(control);
-        if (id === null) return;
-        if (control.dataset.action === 'edit') editTransaction(id);
-        if (control.dataset.action === 'delete') removeTransaction(id);
-    });
-    list.addEventListener('change', event => {
-        if (!event.target.matches('input[data-action="toggle"]')) return;
-        const id = transactionIdFromTarget(event.target);
-        if (id !== null) togglePaid(id);
-    });
-}
-
-document.getElementById('reset-btn').addEventListener('click', resetMonthStatus);
-document.getElementById('sync-btn').addEventListener('click', manualSync);
-
-// --- DARK MODE LOGIC ---
-const darkModeBtn = document.getElementById('dark-mode-btn');
-const darkModeIcon = darkModeBtn.querySelector('i');
-
-if (localStorage.getItem('darkMode') === 'enabled') {
-    document.body.classList.add('dark-mode');
-}
-
-if (document.body.classList.contains('dark-mode')) {
-    darkModeIcon.classList.replace('fa-moon', 'fa-sun');
-}
-
-darkModeBtn.addEventListener('click', () => {
-    document.body.classList.toggle('dark-mode');
-    if (document.body.classList.contains('dark-mode')) {
-        localStorage.setItem('darkMode', 'enabled');
-        darkModeIcon.classList.replace('fa-moon', 'fa-sun');
-    } else {
-        localStorage.setItem('darkMode', 'disabled');
-        darkModeIcon.classList.replace('fa-sun', 'fa-moon');
-    }
-});
+window.addEventListener('scroll', () => {
+    topbar.classList.toggle('is-stuck', window.scrollY > 4);
+}, { passive: true });
 
 async function boot() {
+    buildDayPicker();
+    applyTheme(localStorage.getItem(THEME_KEY));
+    updateDateAndProgress();
+
     if (!window.DoughCloud || !window.DoughCloud.configured()) {
-        loginError.innerText = 'Cloud sync is not configured. Check the Pages deployment.';
+        loginOverlay.dataset.state = 'form';
+        loginError.textContent = 'Cloud sync is not configured. Check the Pages deployment.';
         loginBtn.disabled = true;
         return;
     }
     try {
         const session = await window.DoughCloud.getSession();
         if (session) await showApp();
+        else loginOverlay.dataset.state = 'form';
     } catch (error) {
-        loginError.innerText = error.message || 'Unable to connect to Supabase';
+        loginOverlay.dataset.state = 'form';
+        loginError.textContent = error.message || 'Unable to connect to Supabase';
     }
 }
 
