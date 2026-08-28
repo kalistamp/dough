@@ -77,6 +77,28 @@
                 </button>
                 <p id="login-error" class="error-msg" role="alert"></p>
             </form>
+
+            <!-- Shown only when the deployment never received its Supabase
+                 settings, so a misconfigured Pages build is recoverable
+                 instead of a dead end. -->
+            <form class="login-setup" id="setup-form">
+                <div class="login-mark"><svg class="icon"><use href="#i-sync"/></svg></div>
+                <h1>Connect Dough</h1>
+                <p class="login-sub">This deployment didn't receive its Supabase settings. Enter them once and they'll be remembered on this device.</p>
+
+                <div class="field">
+                    <label for="setup-url">Supabase URL</label>
+                    <input type="url" id="setup-url" placeholder="https://yourproject.supabase.co" autocomplete="off" spellcheck="false" required>
+                </div>
+                <div class="field">
+                    <label for="setup-key">Publishable (anon) key</label>
+                    <input type="text" id="setup-key" placeholder="sb_publishable_…" autocomplete="off" spellcheck="false" required>
+                </div>
+
+                <button type="submit" id="setup-btn" class="btn btn-primary">Save and continue</button>
+                <p id="setup-error" class="error-msg" role="alert"></p>
+                <p class="setup-note">Both values are public by design — they ship in the page source of any Supabase web app. Your data is protected by row-level security, not by hiding these.</p>
+            </form>
         </div>
     </div>
 

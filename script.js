@@ -14,8 +14,9 @@ window.SUPABASE_CONFIG = {
     let currentRevision = 0;
     let realtimeChannel = null;
 
-    function configured() {
-        const config = window.SUPABASE_CONFIG;
+    const CONFIG_CACHE_KEY = 'dough:supabase-config';
+
+    function validConfig(config) {
         if (!config || config.schema !== 'dough' || typeof config.url !== 'string' ||
             typeof config.anonKey !== 'string' || config.url.startsWith('PUT_') ||
             config.anonKey.startsWith('PUT_') || config.anonKey.length < 20) return false;
@@ -28,10 +29,61 @@ window.SUPABASE_CONFIG = {
         }
     }
 
+    // Fallback for deployments that never ran the Actions substitution step (for
+    // example when Pages publishes the branch verbatim). These values are public
+    // by design -- they ship in the page source of every Supabase web app, and
+    // security comes from row-level security policies, not from hiding them.
+    function storedConfig() {
+        try {
+            if (typeof localStorage === 'undefined') return null;
+            const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return { url: parsed.url, anonKey: parsed.anonKey, schema: 'dough' };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function activeConfig() {
+        if (validConfig(window.SUPABASE_CONFIG)) return window.SUPABASE_CONFIG;
+        const stored = storedConfig();
+        return validConfig(stored) ? stored : null;
+    }
+
+    function configured() {
+        return activeConfig() !== null;
+    }
+
+    // True when the build never injected values, so the UI can offer setup
+    // instead of a dead end.
+    function awaitingSetup() {
+        const built = window.SUPABASE_CONFIG;
+        const placeholder = !built || typeof built.url !== 'string' ||
+            built.url.startsWith('PUT_') || String(built.anonKey || '').startsWith('PUT_');
+        return placeholder && !validConfig(storedConfig());
+    }
+
+    function saveConfig(url, anonKey) {
+        const candidate = { url: String(url || '').trim(), anonKey: String(anonKey || '').trim(), schema: 'dough' };
+        if (!validConfig(candidate)) return false;
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify({
+                    url: candidate.url, anonKey: candidate.anonKey
+                }));
+            }
+        } catch (_) {
+            return false;
+        }
+        clientInstance = null;
+        return true;
+    }
+
     function client() {
         if (clientInstance) return clientInstance;
-        if (!configured() || !window.supabase || !window.supabase.createClient) return null;
-        const config = window.SUPABASE_CONFIG;
+        const config = activeConfig();
+        if (!config || !window.supabase || !window.supabase.createClient) return null;
         clientInstance = window.supabase.createClient(config.url, config.anonKey, {
             db: { schema: config.schema },
             auth: { persistSession: true, autoRefreshToken: true }
@@ -203,7 +255,8 @@ window.SUPABASE_CONFIG = {
     }
 
     window.DoughCloud = {
-        configured, getSession, signIn, signOut, pull,
+        configured, awaitingSetup, saveConfig,
+        getSession, signIn, signOut, pull,
         readChangesSince: () => readChangesSince(currentRevision),
         applyChanges, subscribe, transactionToData,
         getUserId: () => signedInUserId,
@@ -225,6 +278,10 @@ const emailInput = $('email-input');
 const passwordInput = $('password-input');
 const loginBtn = $('login-btn');
 const loginError = $('login-error');
+const setupForm = $('setup-form');
+const setupUrl = $('setup-url');
+const setupKey = $('setup-key');
+const setupError = $('setup-error');
 
 // Shell
 const appContainer = $('app-container');
@@ -1661,17 +1718,7 @@ window.addEventListener('scroll', () => {
     topbar.classList.toggle('is-stuck', window.scrollY > 4);
 }, { passive: true });
 
-async function boot() {
-    buildDayPicker();
-    applyTheme(localStorage.getItem(THEME_KEY));
-    updateDateAndProgress();
-
-    if (!window.DoughCloud || !window.DoughCloud.configured()) {
-        loginOverlay.dataset.state = 'form';
-        loginError.textContent = 'Cloud sync is not configured. Check the Pages deployment.';
-        loginBtn.disabled = true;
-        return;
-    }
+async function connect() {
     try {
         const session = await window.DoughCloud.getSession();
         if (session) await showApp();
@@ -1680,6 +1727,42 @@ async function boot() {
         loginOverlay.dataset.state = 'form';
         loginError.textContent = error.message || 'Unable to connect to Supabase';
     }
+}
+
+setupForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    setupError.textContent = '';
+    if (!window.DoughCloud.saveConfig(setupUrl.value, setupKey.value)) {
+        setupError.textContent = 'Expected a https://yourproject.supabase.co URL and a key of at least 20 characters.';
+        return;
+    }
+    loginOverlay.dataset.state = 'checking';
+    await connect();
+});
+
+async function boot() {
+    buildDayPicker();
+    applyTheme(localStorage.getItem(THEME_KEY));
+    updateDateAndProgress();
+
+    if (!window.DoughCloud) {
+        loginOverlay.dataset.state = 'form';
+        loginError.textContent = 'The app failed to load. Try a hard refresh.';
+        loginBtn.disabled = true;
+        return;
+    }
+    if (!window.DoughCloud.configured()) {
+        // Placeholders survived the build: offer setup rather than a dead end.
+        if (window.DoughCloud.awaitingSetup()) {
+            loginOverlay.dataset.state = 'setup';
+        } else {
+            loginOverlay.dataset.state = 'form';
+            loginError.textContent = 'The Supabase settings for this deployment are invalid.';
+            loginBtn.disabled = true;
+        }
+        return;
+    }
+    await connect();
 }
 
 boot();
