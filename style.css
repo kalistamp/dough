@@ -364,24 +364,9 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
 }
 
 .login-checking { display: none; flex-direction: column; align-items: center; gap: var(--s4); color: var(--fg-muted); }
-.login-form, .login-setup { display: none; }
+.login-form { display: none; }
 #login-overlay[data-state="checking"] .login-checking { display: flex; }
 #login-overlay[data-state="form"] .login-form { display: block; }
-#login-overlay[data-state="setup"] .login-setup { display: block; }
-
-.login-setup { text-align: center; }
-.login-setup .field { text-align: left; }
-.login-setup .btn { width: 100%; margin-top: var(--s6); }
-.login-setup input { font-size: 16px; }
-.setup-note {
-    margin-top: var(--s4);
-    padding-top: var(--s4);
-    border-top: 1px solid var(--border);
-    font-size: var(--t-xs);
-    line-height: 1.5;
-    color: var(--fg-subtle);
-    text-align: left;
-}
 
 .login-mark {
     display: grid;
