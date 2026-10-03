@@ -21,9 +21,9 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="color-scheme" content="light dark">
 
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=4">
     <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/dist/umd/supabase.min.js" integrity="sha384-fPWur1rx/DE6YtXP/x0MD6dd90RgnVsz5yX/DIg7CcVAnTBZsENWuIcpvVTM39ti" crossorigin="anonymous"></script>
-    <script defer src="script.js?v=5"></script>
+    <script defer src="script.js?v=6"></script>
 </head>
 <body>
 
@@ -119,6 +119,11 @@
                         <span class="hero-stat-label">Expenses</span>
                         <span class="hero-stat-value money minus" id="money-minus">$0.00</span>
                     </div>
+                    <div class="hero-stat hero-stat-wide">
+                        <span class="hero-stat-label" id="current-label">Remaining balance</span>
+                        <span class="hero-stat-value money" id="current-remaining">$0.00</span>
+                        <span class="hero-stat-meta" id="current-meta">—</span>
+                    </div>
                 </div>
 
                 <div class="hero-next" id="next-due" hidden>
@@ -183,6 +188,10 @@
                         <span class="stat-label">Paid</span>
                         <span class="stat-value" id="p1-paid">0 / 0</span>
                     </div>
+                    <div class="stat">
+                        <span class="stat-label">Remaining</span>
+                        <span class="stat-value money" id="p1-remaining">$0.00</span>
+                    </div>
                 </div>
                 <div class="meter meter-sm">
                     <div class="meter-track">
@@ -214,6 +223,10 @@
                     <div class="stat">
                         <span class="stat-label">Paid</span>
                         <span class="stat-value" id="p2-paid">0 / 0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Remaining</span>
+                        <span class="stat-value money" id="p2-remaining">$0.00</span>
                     </div>
                 </div>
                 <div class="meter meter-sm">
@@ -275,7 +288,7 @@
         <div class="bottombar">
             <div class="bottombar-inner">
                 <div class="bottombar-figure">
-                    <span class="bottombar-label" id="bottombar-label">Remaining this month</span>
+                    <span class="bottombar-label" id="bottombar-label">Net balance this month</span>
                     <span class="bottombar-value" id="bottombar-value">$0.00</span>
                 </div>
                 <button type="button" class="fab" id="add-btn">

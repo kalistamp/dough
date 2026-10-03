@@ -239,6 +239,9 @@ const syncText = $('sync-text');
 const balance = $('balance');
 const moneyPlus = $('money-plus');
 const moneyMinus = $('money-minus');
+const currentLabel = $('current-label');
+const currentRemaining = $('current-remaining');
+const currentMeta = $('current-meta');
 const nextDue = $('next-due');
 const nextDueText = $('next-due-text');
 const monthProgressEl = $('month-progress');
@@ -289,6 +292,7 @@ let viewPeriod = 'all';
 let viewFilter = 'all';
 let appInitialized = false;
 let isLoading = true;
+let shownDate = '';
 
 let cacheUserId = null;
 let cachedTransactionIds = new Set();
@@ -315,6 +319,8 @@ function formatSigned(value, type) {
     return `${sign}${currencyFormat.format(Math.abs(Number(value) || 0))}`;
 }
 
+const shortDateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+
 // --- PERIOD & STATUS ---
 // Period 1 is the 6th-19th. Period 2 wraps the month boundary (20th-5th), so a
 // bare day-number comparison mislabels it: on the 25th a bill due on the 3rd
@@ -323,6 +329,8 @@ function formatSigned(value, type) {
 function periodOf(day) {
     return day >= 6 && day <= 19 ? 'p1' : 'p2';
 }
+
+const PERIOD_LABEL = { p1: 'Period 1', p2: 'Period 2' };
 
 function resolveDueDate(day, now) {
     const today = now.getDate();
@@ -630,6 +638,7 @@ function animateMoney(el, value, options = {}) {
 // --- HEADER DATE & MONTH PROGRESS ---
 function updateDateAndProgress() {
     const now = new Date();
+    shownDate = now.toDateString();
     currentDateEl.textContent = now.toLocaleDateString('en-US', {
         weekday: 'short', month: 'short', day: 'numeric'
     });
@@ -884,9 +893,12 @@ function renderLedger() {
     }
 }
 
+// `remaining` is what is still owed: the unpaid bills. Income never counts
+// toward it, even when its checkbox is ticked.
 function totalsFor(items) {
     let income = 0;
     let expense = 0;
+    let remaining = 0;
     let paid = 0;
     let bills = 0;
     for (const item of items) {
@@ -895,9 +907,10 @@ function totalsFor(items) {
             expense += item.amount;
             bills += 1;
             if (item.paid) paid += 1;
+            else remaining += item.amount;
         }
     }
-    return { income, expense, balance: income - expense, paid, bills };
+    return { income, expense, balance: income - expense, remaining, paid, bills };
 }
 
 function updateValues() {
@@ -917,11 +930,39 @@ function updateValues() {
         $(`${prefix}-paid`).textContent = `${totals.paid} / ${totals.bills}`;
         $(`${prefix}-paid-meter`).style.width =
             `${totals.bills ? (totals.paid / totals.bills) * 100 : 0}%`;
+        renderRemaining($(`${prefix}-remaining`), totals);
     }
 
+    renderCurrentRemaining(now, { p1, p2 });
     renderChipCounts(now);
     renderNextDue(now);
     renderBottomBar({ p1, p2, all });
+}
+
+function renderRemaining(el, totals) {
+    animateMoney(el, totals.remaining, { negativeClass: false });
+    el.classList.toggle('is-clear', totals.bills > 0 && totals.paid === totals.bills);
+}
+
+// The hero answers "what do I still owe right now?", so it follows today's
+// pay period rather than whichever period tab is being viewed.
+function renderCurrentRemaining(now, totalsByPeriod) {
+    const period = periodOf(now.getDate());
+    const totals = totalsByPeriod[period];
+    const [start, end] = (period === 'p1' ? [6, 19] : [20, 5]).map(day => resolveDueDate(day, now));
+    const unpaid = totals.bills - totals.paid;
+
+    let status = 'No bills this period';
+    if (totals.bills) {
+        status = unpaid
+            ? `${unpaid} of ${totals.bills} bill${totals.bills === 1 ? '' : 's'} unpaid`
+            : 'All bills paid';
+    }
+
+    currentLabel.textContent = `Remaining balance · ${PERIOD_LABEL[period]}`;
+    renderRemaining(currentRemaining, totals);
+    currentMeta.textContent =
+        `${shortDateFormat.format(start)} – ${shortDateFormat.format(end)} · ${status}`;
 }
 
 function renderChipCounts(now) {
@@ -979,8 +1020,8 @@ function renderBottomBar(precomputed) {
     };
     const active = viewPeriod === 'p1' ? totals.p1 : viewPeriod === 'p2' ? totals.p2 : totals.all;
     bottombarLabel.textContent = viewPeriod === 'all'
-        ? 'Remaining this month'
-        : `Remaining in ${viewPeriod === 'p1' ? 'Period 1' : 'Period 2'}`;
+        ? 'Net balance this month'
+        : `Net balance in ${PERIOD_LABEL[viewPeriod]}`;
     animateMoney(bottombarValue, active.balance);
 }
 
@@ -1656,6 +1697,15 @@ async function showApp() {
 }
 
 window.addEventListener('resize', syncPills);
+
+// Due-date statuses and the current pay period depend on today's date, so
+// refresh them when the app returns to the foreground on a later day.
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden || isLoading || !appInitialized) return;
+    if (new Date().toDateString() === shownDate) return;
+    updateDateAndProgress();
+    renderAll();
+});
 
 window.addEventListener('scroll', () => {
     topbar.classList.toggle('is-stuck', window.scrollY > 4);

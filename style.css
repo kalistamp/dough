@@ -515,6 +515,16 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
 .hero-stat-label { font-size: var(--t-xs); color: var(--fg-muted); }
 .hero-stat-value { font-size: var(--t-md); font-weight: 650; }
 
+/* What is still owed this pay period: the number acted on, so it spans the
+   row and reads larger than the month totals above it. */
+.hero-stat-wide { grid-column: 1 / -1; }
+.hero-stat-wide .hero-stat-value { font-size: var(--t-xl); font-weight: 700; letter-spacing: -.02em; }
+.hero-stat-meta { font-size: var(--t-xs); color: var(--fg-muted); }
+
+/* Every bill in the period is checked off. */
+.hero-stat-value.is-clear,
+.stat-value.is-clear { color: var(--income); }
+
 .hero-next {
     display: flex;
     align-items: center;
@@ -693,9 +703,11 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
 }
 .period-remaining.is-negative { color: var(--expense); }
 
+/* Two columns on phones so currency amounts keep their full width; four
+   across once there is room. */
 .period-stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: var(--s2);
     margin-top: var(--s4);
 }
@@ -1167,6 +1179,10 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
 /* --------------------------------------------------------------------------
    Larger screens — the phone layout widened, not a different app
    -------------------------------------------------------------------------- */
+
+@media (min-width: 480px) {
+    .period-stats { grid-template-columns: repeat(4, 1fr); }
+}
 
 @media (min-width: 700px) {
     .app-main { max-width: 660px; padding-inline: var(--s5); }
