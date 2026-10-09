@@ -538,7 +538,8 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
     font-weight: 600;
 }
 .hero-next[hidden] { display: none; }
-.hero-next .icon { font-size: var(--t-md); }
+.hero-next .icon { font-size: var(--t-md); flex: none; }
+.hero-next > span { min-width: 0; overflow-wrap: anywhere; }
 
 .meter { margin-top: var(--s4); }
 .meter-track {
@@ -787,11 +788,12 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
 }
 
 .row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+/* Long bill names wrap onto extra lines rather than being cut off with an
+   ellipsis; `anywhere` also breaks unspaced strings like account numbers. */
 .row-text {
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
 }
 .row-meta { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-xs); color: var(--fg-muted); }
 .day-chip {
@@ -914,7 +916,7 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
     color: var(--fg-subtle);
     border-bottom: 1px solid var(--border);
 }
-.ledger td { padding: 10px var(--s1); border-bottom: 1px solid var(--border); }
+.ledger td { padding: 10px var(--s1); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .ledger tr:last-child td { border-bottom: 0; }
 .ledger-empty td { color: var(--fg-subtle); text-align: center; padding: var(--s5) 0; }
 .ledger-day {
@@ -1160,6 +1162,7 @@ input::placeholder, textarea::placeholder { color: var(--fg-subtle); }
 }
 .toast.is-leaving { animation: toast-out var(--dur) var(--ease) forwards; }
 .toast .icon { font-size: var(--t-md); flex: none; }
+.toast > span { min-width: 0; overflow-wrap: anywhere; }
 .toast-success .icon { color: var(--income); }
 .toast-error { border-color: var(--danger); }
 .toast-error .icon { color: var(--danger); }
